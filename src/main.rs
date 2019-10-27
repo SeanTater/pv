@@ -2,11 +2,11 @@
 extern crate chrono;
 extern crate indicatif;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::io;
 use std::io::{
     Read, Write,
-    BufReader, BufWriter,
     ErrorKind};
-use std::io;
+use std::fs::File;
 
 const DEFAULT_BUF_SIZE: usize = 65536;
 
@@ -22,29 +22,50 @@ fn main() {
         (@arg rate: -r --rate "Show data transfer rate counter")
         (@arg average_rate: -a --("average-rate") "Show data transfer average rate counter (same as rate in this implementation, for now)")
         (@arg eta: -e --eta "Show estimated time of arrival (completion)")
+        (@arg fineta: -I --fineta "Show absolute estimated time of arrival (completion) (same as fineta in this implementation, for now)")
         (@arg line_mode: -l --("line-mode") "Count lines instead of bytes")
         (@arg null: --null "Lines are null-terminated") // TODO: need to support -0
         (@arg skip_input_errors: -E --("skip-errors") "Skip read errors in input")
         (@arg skip_output_errors: --("skip-output-errors") "Skip read errors in output")
-        //(@arg INPUT: ... "Input filenames")
+        (@arg input_filenames: +multiple "Input filenames. Use -, /dev/stdin, or nothing, to use stdin")
+        (@arg interval: -i --interval +takes_value "Show message every N seconds instead of once per block (useful for high throughput streams)")
+        (@arg name: -N --name +takes_value "Prefix the bar with this message")
 
         // These are not really a priority
         (@arg buffer_percent: -T --("buffer-percent") "Ignored for compatibility")
         (@arg buffer_size: -B --("buffer-size") +takes_value "Ignored for compatibility")
         (@arg quiet: -q --quiet "Ignored for compatibility; if you want \"quiet\", don't use pv")
         (@arg progress: -p --progress "Ignored for compatibility; this implementation always shows the progressbar")
+        (@arg height: -H --height +takes_value "Ignored for compatibility")
     ).get_matches();
+    let sources = matches
+        .values_of_os("input_filenames")
+        // Beware a lot of boxing coming up
+        .map(|fnames| fnames
+            .map(|fname| match fname.to_str() {
+                // Interpret - as stdin
+                Some("-") => Box::new(io::stdin()) as Box<dyn Read>,
+                _ => Box::new(File::open(fname).expect("Failed to open file")) as Box<dyn Read>
+            })
+            // Concatenate the files
+            .fold(Box::new(io::empty()) as Box<dyn Read>, |ch, f| Box::new(ch.chain(f)) as Box<dyn Read>)
+        )
+        // No files? Use stdin.
+        .unwrap_or(Box::new(io::stdin()) as Box<dyn Read>);
+
     PipeView {
-        source: Box::new(BufReader::new(io::stdin())), // Source
-        sink: Box::new(BufWriter::new(io::stdout())),   // Sink
+        source: sources, // Source
+        sink: Box::new(io::BufWriter::new(io::stdout())),   // Sink
         progress: PipeView::progress_from_options(
             matches.value_of("size").and_then(|x| x.parse().ok()), // Estimated size
+            matches.value_of("prefix"),         // Prefix message
             matches.is_present("timer"),        // Whether to show Elapsed Time
             matches.value_of("width").and_then(|x| x.parse().ok()), // Progressbar width
             matches.is_present("bytes"),        // Whether to show transferred Bytes
-            matches.is_present("eta"),          // Whether to show ETA
+            matches.is_present("eta") || matches.is_present("fineta"),          // Whether to show ETA TODO: Show final eta as an absolute time
             matches.is_present("rate") || matches.is_present("average_rate"),         // Whether to show the rate. TODO: Show average rate separately
             matches.is_present("line_mode"),    // Whether to work by lines instead
+            matches.value_of("interval").and_then(|x| x.parse().ok()) // Maybe use a steady tick
         ),
         line_mode: if matches.is_present("line_mode") {
             LineMode::Line(if matches.is_present("null") { 0 } else { 10 }) // default to unix newline
@@ -55,6 +76,9 @@ fn main() {
         skip_output_errors: matches.is_present("skip_output_errors")
     }.pipeview().unwrap();
 }
+
+/// Prevent a bunch of boxing noise by forcing a cast
+
 
 enum LineMode {
     Line(u8),
@@ -73,15 +97,21 @@ impl PipeView {
     /// Set up the progress bar from the parsed CLI options
     fn progress_from_options(
         len: Option<u64>,
+        prefix: Option<&str>,
         show_timer: bool,
         width: Option<usize>,
         show_bytes: bool,
         show_eta: bool,
         show_rate: bool,
-        line_mode: bool
+        line_mode: bool,
+        interval: Option<f64>
     ) -> ProgressBar {
         // What to show, from left to right, in the progress bar
         let mut template = vec![];
+
+        for msg in prefix {
+            template.push(msg.to_string());
+        }
         if show_timer {
             template.push("{elapsed_precise}".to_string());
         }
@@ -133,7 +163,12 @@ impl PipeView {
             Some(x) => ProgressBar::new(x),
             None => ProgressBar::new_spinner()
         };
-        
+
+        // Optionally enable steady tick
+        for sec in interval {
+            progress.set_draw_delta(1<<40);
+            progress.enable_steady_tick((sec * 1000.0) as u64);
+        }
         progress.set_style(style);
         progress
     }
