@@ -1,12 +1,11 @@
-#[macro_use] extern crate clap;
+#[macro_use]
+extern crate clap;
 extern crate chrono;
 extern crate indicatif;
 use indicatif::{ProgressBar, ProgressStyle};
-use std::io;
-use std::io::{
-    Read, Write,
-    ErrorKind};
 use std::fs::File;
+use std::io;
+use std::io::{ErrorKind, Read, Write};
 
 const DEFAULT_BUF_SIZE: usize = 65536;
 
@@ -41,31 +40,34 @@ fn main() {
     let sources = matches
         .values_of_os("input_filenames")
         // Beware a lot of boxing coming up
-        .map(|fnames| fnames
-            .map(|fname| match fname.to_str() {
-                // Interpret - as stdin
-                Some("-") => Box::new(io::stdin()) as Box<dyn Read>,
-                _ => Box::new(File::open(fname).expect("Failed to open file")) as Box<dyn Read>
-            })
-            // Concatenate the files
-            .fold(Box::new(io::empty()) as Box<dyn Read>, |ch, f| Box::new(ch.chain(f)) as Box<dyn Read>)
-        )
+        .map(|fnames| {
+            fnames
+                .map(|fname| match fname.to_str() {
+                    // Interpret - as stdin
+                    Some("-") => Box::new(io::stdin()) as Box<dyn Read>,
+                    _ => Box::new(File::open(fname).expect("Failed to open file")) as Box<dyn Read>,
+                })
+                // Concatenate the files
+                .fold(Box::new(io::empty()) as Box<dyn Read>, |ch, f| {
+                    Box::new(ch.chain(f)) as Box<dyn Read>
+                })
+        })
         // No files? Use stdin.
         .unwrap_or(Box::new(io::stdin()) as Box<dyn Read>);
 
     PipeView {
-        source: sources, // Source
-        sink: Box::new(io::BufWriter::new(io::stdout())),   // Sink
+        source: sources,                                  // Source
+        sink: Box::new(io::BufWriter::new(io::stdout())), // Sink
         progress: PipeView::progress_from_options(
             matches.value_of("size").and_then(|x| x.parse().ok()), // Estimated size
-            matches.value_of("prefix"),         // Prefix message
-            matches.is_present("timer"),        // Whether to show Elapsed Time
+            matches.value_of("prefix"),                            // Prefix message
+            matches.is_present("timer"),                           // Whether to show Elapsed Time
             matches.value_of("width").and_then(|x| x.parse().ok()), // Progressbar width
-            matches.is_present("bytes"),        // Whether to show transferred Bytes
-            matches.is_present("eta") || matches.is_present("fineta"),          // Whether to show ETA TODO: Show final eta as an absolute time
-            matches.is_present("rate") || matches.is_present("average_rate"),         // Whether to show the rate. TODO: Show average rate separately
-            matches.is_present("line_mode"),    // Whether to work by lines instead
-            matches.value_of("interval").and_then(|x| x.parse().ok()) // Maybe use a steady tick
+            matches.is_present("bytes"), // Whether to show transferred Bytes
+            matches.is_present("eta") || matches.is_present("fineta"), // Whether to show ETA TODO: Show final eta as an absolute time
+            matches.is_present("rate") || matches.is_present("average_rate"), // Whether to show the rate. TODO: Show average rate separately
+            matches.is_present("line_mode"), // Whether to work by lines instead
+            matches.value_of("interval").and_then(|x| x.parse().ok()), // Maybe use a steady tick
         ),
         line_mode: if matches.is_present("line_mode") {
             LineMode::Line(if matches.is_present("null") { 0 } else { 10 }) // default to unix newline
@@ -73,16 +75,17 @@ fn main() {
             LineMode::Byte
         },
         skip_input_errors: matches.is_present("skip_input_errors"),
-        skip_output_errors: matches.is_present("skip_output_errors")
-    }.pipeview().unwrap();
+        skip_output_errors: matches.is_present("skip_output_errors"),
+    }
+    .pipeview()
+    .unwrap();
 }
 
 /// Prevent a bunch of boxing noise by forcing a cast
 
-
 enum LineMode {
     Line(u8),
-    Byte
+    Byte,
 }
 struct PipeView {
     source: Box<dyn Read>,
@@ -90,7 +93,7 @@ struct PipeView {
     progress: ProgressBar,
     line_mode: LineMode,
     skip_input_errors: bool,
-    skip_output_errors: bool
+    skip_output_errors: bool,
 }
 
 impl PipeView {
@@ -104,7 +107,7 @@ impl PipeView {
         show_eta: bool,
         show_rate: bool,
         line_mode: bool,
-        interval: Option<f64>
+        interval: Option<f64>,
     ) -> ProgressBar {
         // What to show, from left to right, in the progress bar
         let mut template = vec![];
@@ -118,7 +121,7 @@ impl PipeView {
 
         match width {
             Some(x) => template.push(format!("{{bar:{}}} {{percent}}", x)),
-            None => template.push("{wide_bar} {percent}".to_string())
+            None => template.push("{wide_bar} {percent}".to_string()),
         }
 
         // Choose whether you want bytes or plain counts on several fields
@@ -138,14 +141,14 @@ impl PipeView {
         if show_rate {
             template.push(per_sec_name.to_string());
         }
-        
+
         if show_eta {
             template.push("{eta_precise}".to_string());
         }
 
         let mut style = match len {
             Some(_x) => ProgressStyle::default_bar(),
-            None => ProgressStyle::default_spinner()
+            None => ProgressStyle::default_spinner(),
         };
 
         // Okay, that's all fine and dandy but if they don't specify anything,
@@ -153,20 +156,20 @@ impl PipeView {
         if !(show_timer || show_bytes || show_rate || show_eta) {
             style = style.template(&format!(
                 "{{elapsed}} {{wide_bar}} {{percent}} {}/{} {} {{eta}}",
-                pos_name, len_name, per_sec_name)
-            );
+                pos_name, len_name, per_sec_name
+            ));
         } else {
             style = style.template(&template.join(" "));
         }
 
         let progress = match len {
             Some(x) => ProgressBar::new(x),
-            None => ProgressBar::new_spinner()
+            None => ProgressBar::new_spinner(),
         };
 
         // Optionally enable steady tick
         for sec in interval {
-            progress.set_draw_delta(1<<40);
+            progress.set_draw_delta(1 << 40);
             progress.enable_steady_tick((sec * 1000.0) as u64);
         }
         progress.set_style(style);
@@ -176,7 +179,7 @@ impl PipeView {
     fn pipeview(&mut self) -> Result<u64, Box<dyn ::std::error::Error>> {
         // Essentially std::io::copy
         let mut buf = [0; DEFAULT_BUF_SIZE];
-        let mut written : u64 = 0;
+        let mut written: u64 = 0;
         loop {
             // Always skip interruptions, maybe skip other errors
             // Also maybe finish if we read nothing
@@ -192,11 +195,13 @@ impl PipeView {
             match self.sink.write_all(&buf[..len]) {
                 Ok(_) => (),
                 Err(_) if self.skip_output_errors => continue,
-                Err(e) => return Err(e.into())
+                Err(e) => return Err(e.into()),
             };
             match self.line_mode {
-                LineMode::Line(delim) => self.progress.inc(buf[..len].iter().filter(|b| **b == delim).count() as u64),
-                LineMode::Byte => self.progress.inc(len as u64)
+                LineMode::Line(delim) => self
+                    .progress
+                    .inc(buf[..len].iter().filter(|b| **b == delim).count() as u64),
+                LineMode::Byte => self.progress.inc(len as u64),
             };
             written += len as u64;
         }
