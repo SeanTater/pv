@@ -12,7 +12,7 @@ const DEFAULT_BUF_SIZE: usize = 65536;
 
 fn main() {
     let matches = clap_app!(pv =>
-        (version: "0.1.0")
+        (version: "0.2.0")
         (author: "Sean Gallagher <stgallag@gmail.com>")
         (about: "A progress bar and flow rate meter for Unix pipes, (a rust clone, built from clap and indicatif)")
         (@arg size: -s --size +takes_value "Set estimated data size to SIZE bytes")
