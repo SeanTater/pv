@@ -3,6 +3,11 @@ name = "pv"
 version = "0.1.0"
 authors = ["Sean Gallagher <stgallag@gmail.com>"]
 edition = "2018"
+description = "Rust reimplementation of the unix pipeview (pv) utility"
+license = "MIT"
+documentation = "https://docs.rs/pv"
+homepage = "https://github.com/SeanTater/pv"
+repository = "https://github.com/SeanTater/pv"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
