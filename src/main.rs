@@ -37,8 +37,18 @@ fn main() {
         (@arg progress: -p --progress "Ignored for compatibility; this implementation always shows the progressbar")
         (@arg height: -H --height +takes_value "Ignored for compatibility")
     ).get_matches();
+
+    // Guess an expected size if possible
+    let expected_size : u64 = matches
+        .values_of_os("input_filenames")
+        .into_iter()
+        .flatten()
+        .map(|fname| File::open(fname).expect("Failed to open file").metadata().expect("Could not stat file").len())
+        .sum();
+
     let sources = matches
         .values_of_os("input_filenames")
+        // Note no flattening here because we treat no specified files as stdin
         // Beware a lot of boxing coming up
         .map(|fnames| {
             fnames
@@ -59,7 +69,7 @@ fn main() {
         source: sources,                                  // Source
         sink: Box::new(io::BufWriter::new(io::stdout())), // Sink
         progress: PipeView::progress_from_options(
-            matches.value_of("size").and_then(|x| x.parse().ok()), // Estimated size
+            matches.value_of("size").and_then(|x| x.parse().ok()).or(Some(expected_size)), // Estimated size
             matches.value_of("prefix"),                            // Prefix message
             matches.is_present("timer"),                           // Whether to show Elapsed Time
             matches.value_of("width").and_then(|x| x.parse().ok()), // Progressbar width
@@ -121,7 +131,7 @@ impl PipeView {
 
         match width {
             Some(x) => template.push(format!("{{bar:{}}} {{percent}}", x)),
-            None => template.push("{wide_bar} {percent}".to_string()),
+            None => template.push("{wide_bar} {percent}%".to_string()),
         }
 
         // Choose whether you want bytes or plain counts on several fields
@@ -155,7 +165,7 @@ impl PipeView {
         // we should have a nicer default than all empty
         if !(show_timer || show_bytes || show_rate || show_eta) {
             style = style.template(&format!(
-                "{{elapsed}} {{wide_bar}} {{percent}} {}/{} {} {{eta}}",
+                "{{elapsed}} {{wide_bar}} {{percent}}% {}/{} {} {{eta}}",
                 pos_name, len_name, per_sec_name
             ));
         } else {
