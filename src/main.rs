@@ -1,7 +1,4 @@
-#[macro_use]
-extern crate clap;
-extern crate chrono;
-extern crate indicatif;
+use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::File;
 use std::io;
@@ -10,83 +7,111 @@ use std::time::Duration;
 
 const DEFAULT_BUF_SIZE: usize = 65536;
 
-fn main() {
-    let matches = clap_app!(pv =>
-        (version: "0.2.0")
-        (author: "Sean Gallagher <stgallag@gmail.com>")
-        (about: "A progress bar and flow rate meter for Unix pipes, (a rust clone, built from clap and indicatif)")
-        (@arg size: -s --size +takes_value "Set estimated data size to SIZE bytes")
-        (@arg timer: -t --timer "Show elapsed time")
-        (@arg width: -w --width +takes_value "Width of the progressbar (default: max)")
-        (@arg bytes: -b --bytes "Show number of bytes transferred")
-        (@arg rate: -r --rate "Show data transfer rate counter")
-        (@arg average_rate: -a --("average-rate") "Show data transfer average rate counter (same as rate in this implementation, for now)")
-        (@arg eta: -e --eta "Show estimated time of arrival (completion)")
-        (@arg fineta: -I --fineta "Show absolute estimated time of arrival (completion) (same as fineta in this implementation, for now)")
-        (@arg line_mode: -l --("line-mode") "Count lines instead of bytes")
-        (@arg null: --null "Lines are null-terminated") // TODO: need to support -0
-        (@arg skip_input_errors: -E --("skip-errors") "Skip read errors in input")
-        (@arg skip_output_errors: --("skip-output-errors") "Skip read errors in output")
-        (@arg input_filenames: +multiple "Input filenames. Use -, /dev/stdin, or nothing, to use stdin")
-        (@arg interval: -i --interval +takes_value "Show message every N seconds instead of once per block (useful for high throughput streams)")
-        (@arg name: -N --name +takes_value "Prefix the bar with this message")
+#[derive(Parser, Debug)]
+struct PipeViewConfig {
+    /// Set estimated data size to SIZE bytes
+    #[arg(short = 's')]
+    size: Option<u64>,
+    /// Show elapsed time
+    #[arg(short = 't')]
+    timer: bool,
+    /// Width of the progressbar (default: max)
+    #[arg(short = 'w')]
+    width: Option<u64>,
+    /// Show number of bytes transferred
+    #[arg(short = 'b')]
+    bytes: bool,
+    /// Show data transfer rate counter
+    #[arg(short = 'r')]
+    rate: bool,
+    /// Show data transfer average rate counter (same as rate in this implementation, for now)
+    #[arg(short = 'a')]
+    average_rate: bool,
+    /// Show estimated time of arrival (completion)
+    #[arg(short = 'e')]
+    eta: bool,
+    /// Show absolute estimated time of arrival (completion) (same as fineta in this implementation, for now)
+    #[arg(short = 'I')]
+    fineta: bool,
+    /// Count lines instead of bytes
+    #[arg(short = 'l')]
+    line_mode: bool,
+    /// Lines are null-terminated
+    #[arg(short = '0')]
+    null: bool,
+    /// Skip read errors in input
+    #[arg(short = 'E')]
+    skip_input_errors: bool,
+    /// Skip read errors in output
+    #[arg(short = 'O')]
+    skip_output_errors: bool,
+    /// Input filenames. Use -, /dev/stdin, or nothing, to use stdin
+    #[arg(short = 'f')]
+    input_filenames: Vec<String>,
+    /// Show message every N seconds instead of once per block (useful for high throughput streams)
+    #[arg(short = 'i')]
+    interval: Option<f64>,
+    /// Prefix the bar with this message
+    #[arg(short = 'N')]
+    name: Option<String>,
+    /// Ignored for compatibility
+    #[arg(short = 'T')]
+    buffer_percent: bool,
+    /// Ignored for compatibility
+    #[arg(short = 'B')]
+    buffer_size: Option<u64>,
+    /// Ignored for compatibility; if you want "quiet", don't use pv
+    #[arg(short = 'q')]
+    quiet: bool,
+    /// Ignored for compatibility; this implementation always shows the progressbar
+    #[arg(short = 'p')]
+    progress: bool,
+    /// Ignored for compatibility
+    #[arg(short = 'H')]
+    height: Option<u64>,
+}
 
-        // These are not really a priority
-        (@arg buffer_percent: -T --("buffer-percent") "Ignored for compatibility")
-        (@arg buffer_size: -B --("buffer-size") +takes_value "Ignored for compatibility")
-        (@arg quiet: -q --quiet "Ignored for compatibility; if you want \"quiet\", don't use pv")
-        (@arg progress: -p --progress "Ignored for compatibility; this implementation always shows the progressbar")
-        (@arg height: -H --height +takes_value "Ignored for compatibility")
-    ).get_matches();
+fn main() {
+    let mut matches = PipeViewConfig::parse();
 
     // Guess an expected size if possible
-    let expected_size : u64 = matches
-        .values_of_os("input_filenames")
-        .into_iter()
-        .flatten()
+    matches.size = Some(matches.size.unwrap_or(matches
+        .input_filenames
+        .iter()
         .map(|fname| File::open(fname).expect("Failed to open file").metadata().expect("Could not stat file").len())
-        .sum();
+        .sum()));
 
-    let sources = matches
-        .values_of_os("input_filenames")
-        // Note no flattening here because we treat no specified files as stdin
+    let sources = if matches.input_filenames.is_empty() {
+        Box::new(io::stdin()) as Box<dyn Read>
+    } else {
+        matches
+        .input_filenames
+        .iter()
         // Beware a lot of boxing coming up
-        .map(|fnames| {
-            fnames
-                .map(|fname| match fname.to_str() {
-                    // Interpret - as stdin
-                    Some("-") => Box::new(io::stdin()) as Box<dyn Read>,
-                    _ => Box::new(File::open(fname).expect("Failed to open file")) as Box<dyn Read>,
-                })
-                // Concatenate the files
-                .fold(Box::new(io::empty()) as Box<dyn Read>, |ch, f| {
-                    Box::new(ch.chain(f)) as Box<dyn Read>
-                })
+        .map(|fname| match fname.as_str() {
+            // Interpret - as stdin
+            "-" => Box::new(io::stdin()) as Box<dyn Read>,
+            _ => Box::new(File::open(fname).expect("Failed to open file")) as Box<dyn Read>,
         })
-        // No files? Use stdin.
-        .unwrap_or(Box::new(io::stdin()) as Box<dyn Read>);
+        // Concatenate the files
+        .fold(Box::new(io::empty()) as Box<dyn Read>, |ch, f| {
+            Box::new(ch.chain(f)) as Box<dyn Read>
+        })
+    };
 
     PipeView {
         source: sources,                                  // Source
         sink: Box::new(io::BufWriter::new(io::stdout())), // Sink
         progress: PipeView::progress_from_options(
-            matches.value_of("size").and_then(|x| x.parse().ok()).or(Some(expected_size)), // Estimated size
-            matches.value_of("prefix"),                            // Prefix message
-            matches.is_present("timer"),                           // Whether to show Elapsed Time
-            matches.value_of("width").and_then(|x| x.parse().ok()), // Progressbar width
-            matches.is_present("bytes"), // Whether to show transferred Bytes
-            matches.is_present("eta") || matches.is_present("fineta"), // Whether to show ETA TODO: Show final eta as an absolute time
-            matches.is_present("rate") || matches.is_present("average_rate"), // Whether to show the rate. TODO: Show average rate separately
-            matches.is_present("line_mode"), // Whether to work by lines instead
-            matches.value_of("interval").and_then(|x| x.parse().ok()), // Maybe use a steady tick
+            &matches
         ),
-        line_mode: if matches.is_present("line_mode") {
-            LineMode::Line(if matches.is_present("null") { 0 } else { 10 }) // default to unix newline
+        line_mode: if matches.line_mode {
+            LineMode::Line(if matches.null { 0 } else { 10 }) // default to unix newline
         } else {
             LineMode::Byte
         },
-        skip_input_errors: matches.is_present("skip_input_errors"),
-        skip_output_errors: matches.is_present("skip_output_errors"),
+        skip_input_errors: matches.skip_input_errors,
+        skip_output_errors: matches.skip_output_errors,
     }
     .pipeview()
     .unwrap();
@@ -110,61 +135,53 @@ struct PipeView {
 impl PipeView {
     /// Set up the progress bar from the parsed CLI options
     fn progress_from_options(
-        len: Option<u64>,
-        prefix: Option<&str>,
-        show_timer: bool,
-        width: Option<usize>,
-        show_bytes: bool,
-        show_eta: bool,
-        show_rate: bool,
-        line_mode: bool,
-        interval: Option<f64>,
+        conf: &PipeViewConfig,
     ) -> ProgressBar {
         // What to show, from left to right, in the progress bar
         let mut template = vec![];
 
-        if let Some(msg) = prefix {
+        if let Some(ref msg) = conf.name {
             template.push(msg.to_string());
         }
-        if show_timer {
+        if conf.timer {
             template.push("{elapsed_precise}".to_string());
         }
 
-        match width {
+        match conf.width {
             Some(x) => template.push(format!("{{bar:{x}}} {{percent}}")),
             None => template.push("{wide_bar} {percent}%".to_string()),
         }
 
         // Choose whether you want bytes or plain counts on several fields
-        let (pos_name, len_name, per_sec_name) = if line_mode {
+        let (pos_name, len_name, per_sec_name) = if conf.line_mode {
             ("{pos}", "{len}", "{per_sec}")
         } else {
             ("{bytes}", "{total_bytes}", "{bytes_per_sec}")
         };
 
         // Put the transferred and total together so they don't have a space
-        if show_bytes && len.is_some() {
+        if conf.bytes && conf.size.is_some() {
             template.push(format!("{pos_name}/{len_name}"));
-        } else if show_bytes {
+        } else if conf.bytes {
             template.push(pos_name.to_string());
         }
 
-        if show_rate {
+        if conf.rate || conf.average_rate {
             template.push(per_sec_name.to_string());
         }
 
-        if show_eta {
+        if conf.eta || conf.fineta {
             template.push("{eta_precise}".to_string());
         }
 
-        let mut style = match len {
+        let mut style = match conf.size {
             Some(_x) => ProgressStyle::default_bar(),
             None => ProgressStyle::default_spinner(),
         };
 
         // Okay, that's all fine and dandy but if they don't specify anything,
         // we should have a nicer default than all empty
-        if !(show_timer || show_bytes || show_rate || show_eta) {
+        if !(conf.timer || conf.bytes || conf.rate || conf.average_rate || conf.eta || conf.fineta) {
             style = style.template(&format!(
                 "{{elapsed}} {{wide_bar}} {{percent}}% {pos_name}/{len_name} {per_sec_name} {{eta}}"
             )).unwrap();
@@ -172,13 +189,13 @@ impl PipeView {
             style = style.template(&template.join(" ")).unwrap();
         }
 
-        let progress = match len {
+        let progress = match conf.size {
             Some(x) => ProgressBar::new(x),
             None => ProgressBar::new_spinner(),
         };
 
         // Optionally enable steady tick
-        if let Some(sec) = interval {
+        if let Some(sec) = conf.interval {
             progress.enable_steady_tick(Duration::from_secs_f64(sec));
         }
         progress.set_style(style);
