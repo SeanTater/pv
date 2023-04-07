@@ -6,6 +6,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::File;
 use std::io;
 use std::io::{ErrorKind, Read, Write};
+use std::time::Duration;
 
 const DEFAULT_BUF_SIZE: usize = 65536;
 
@@ -122,7 +123,7 @@ impl PipeView {
         // What to show, from left to right, in the progress bar
         let mut template = vec![];
 
-        for msg in prefix {
+        if let Some(msg) = prefix {
             template.push(msg.to_string());
         }
         if show_timer {
@@ -130,7 +131,7 @@ impl PipeView {
         }
 
         match width {
-            Some(x) => template.push(format!("{{bar:{}}} {{percent}}", x)),
+            Some(x) => template.push(format!("{{bar:{x}}} {{percent}}")),
             None => template.push("{wide_bar} {percent}%".to_string()),
         }
 
@@ -143,7 +144,7 @@ impl PipeView {
 
         // Put the transferred and total together so they don't have a space
         if show_bytes && len.is_some() {
-            template.push(format!("{}/{}", pos_name, len_name));
+            template.push(format!("{pos_name}/{len_name}"));
         } else if show_bytes {
             template.push(pos_name.to_string());
         }
@@ -165,11 +166,10 @@ impl PipeView {
         // we should have a nicer default than all empty
         if !(show_timer || show_bytes || show_rate || show_eta) {
             style = style.template(&format!(
-                "{{elapsed}} {{wide_bar}} {{percent}}% {}/{} {} {{eta}}",
-                pos_name, len_name, per_sec_name
-            ));
+                "{{elapsed}} {{wide_bar}} {{percent}}% {pos_name}/{len_name} {per_sec_name} {{eta}}"
+            )).unwrap();
         } else {
-            style = style.template(&template.join(" "));
+            style = style.template(&template.join(" ")).unwrap();
         }
 
         let progress = match len {
@@ -178,9 +178,8 @@ impl PipeView {
         };
 
         // Optionally enable steady tick
-        for sec in interval {
-            progress.set_draw_delta(1 << 40);
-            progress.enable_steady_tick((sec * 1000.0) as u64);
+        if let Some(sec) = interval {
+            progress.enable_steady_tick(Duration::from_secs_f64(sec));
         }
         progress.set_style(style);
         progress
