@@ -69,6 +69,9 @@ struct PipeViewConfig {
     /// Ignored for compatibility
     #[arg(short = 'H')]
     height: Option<u64>,
+    /// Custom format string
+    #[arg(short = 'F', long = "format")]
+    format: Option<String>,
 }
 
 fn main() {
@@ -119,6 +122,155 @@ fn main() {
 
 /// Prevent a bunch of boxing noise by forcing a cast
 
+#[derive(Debug, Clone)]
+enum FormatToken {
+    Text(String),
+    Progress { width: Option<usize> },
+    ProgressBarOnly { width: Option<usize> },
+    ProgressAmountOnly,
+    Timer,
+    Eta,
+    Fineta,
+    Rate,
+    AverageRate,
+    Bytes,
+    Name,
+}
+
+fn parse_format_string(format_str: &str) -> Vec<FormatToken> {
+    let mut tokens = Vec::new();
+    let mut chars = format_str.chars().peekable();
+    let mut current_text = String::new();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            // Save any accumulated text
+            if !current_text.is_empty() {
+                tokens.push(FormatToken::Text(current_text.clone()));
+                current_text.clear();
+            }
+            
+            if chars.peek() == Some(&'%') {
+                // Double %% becomes a single %
+                chars.next();
+                current_text.push('%');
+                continue;
+            }
+            
+            // Parse width prefix (e.g., %20p)
+            let mut width_str = String::new();
+            while let Some(&next_ch) = chars.peek() {
+                if next_ch.is_ascii_digit() {
+                    width_str.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+            let width = if width_str.is_empty() { None } else { width_str.parse().ok() };
+            
+            // Check for {format} syntax or single character
+            if chars.peek() == Some(&'{') {
+                chars.next(); // consume '{'
+                let mut format_name = String::new();
+                while let Some(ch) = chars.next() {
+                    if ch == '}' {
+                        break;
+                    }
+                    format_name.push(ch);
+                }
+                
+                let token = match format_name.as_str() {
+                    "progress" => FormatToken::Progress { width },
+                    "progress-bar-only" => FormatToken::ProgressBarOnly { width },
+                    "progress-amount-only" => FormatToken::ProgressAmountOnly,
+                    "timer" => FormatToken::Timer,
+                    "eta" => FormatToken::Eta,
+                    "fineta" => FormatToken::Fineta,
+                    "rate" => FormatToken::Rate,
+                    "average-rate" => FormatToken::AverageRate,
+                    "bytes" | "transferred" => FormatToken::Bytes,
+                    "name" => FormatToken::Name,
+                    _ => FormatToken::Text(format!("%{{{}}}", format_name)), // Unknown format
+                };
+                tokens.push(token);
+            } else if let Some(ch) = chars.next() {
+                let token = match ch {
+                    'p' => FormatToken::Progress { width },
+                    't' => FormatToken::Timer,
+                    'e' => FormatToken::Eta,
+                    'I' => FormatToken::Fineta,
+                    'r' => FormatToken::Rate,
+                    'a' => FormatToken::AverageRate,
+                    'b' => FormatToken::Bytes,
+                    'N' => FormatToken::Name,
+                    _ => FormatToken::Text(format!("%{}", ch)), // Unknown format
+                };
+                tokens.push(token);
+            }
+        } else {
+            current_text.push(ch);
+        }
+    }
+    
+    // Add any remaining text
+    if !current_text.is_empty() {
+        tokens.push(FormatToken::Text(current_text));
+    }
+    
+    tokens
+}
+
+fn build_indicatif_template(tokens: &[FormatToken], conf: &PipeViewConfig) -> String {
+    let mut template = String::new();
+    
+    let (pos_name, len_name, per_sec_name) = if conf.line_mode {
+        ("{pos}", "{len}", "{per_sec}")
+    } else {
+        ("{bytes}", "{total_bytes}", "{bytes_per_sec}")
+    };
+    
+    for token in tokens {
+        match token {
+            FormatToken::Text(text) => template.push_str(text),
+            FormatToken::Progress { width } => {
+                if let Some(w) = width {
+                    template.push_str(&format!("{{bar:{w}}} {{percent}}%"));
+                } else {
+                    template.push_str("{wide_bar} {percent}%");
+                }
+            },
+            FormatToken::ProgressBarOnly { width } => {
+                if let Some(w) = width {
+                    template.push_str(&format!("{{bar:{w}}}"));
+                } else {
+                    template.push_str("{wide_bar}");
+                }
+            },
+            FormatToken::ProgressAmountOnly => template.push_str("{percent}%"),
+            FormatToken::Timer => template.push_str("{elapsed_precise}"),
+            FormatToken::Eta => template.push_str("{eta_precise}"),
+            FormatToken::Fineta => template.push_str("{eta_precise}"), // Same as eta for now
+            FormatToken::Rate => template.push_str(per_sec_name),
+            FormatToken::AverageRate => template.push_str(per_sec_name), // Same as rate for now
+            FormatToken::Bytes => {
+                if conf.size.is_some() {
+                    template.push_str(&format!("{pos_name}/{len_name}"));
+                } else {
+                    template.push_str(pos_name);
+                }
+            },
+            FormatToken::Name => {
+                if let Some(ref name) = conf.name {
+                    template.push_str(name);
+                    template.push_str(": ");
+                }
+            },
+        }
+    }
+    
+    template
+}
+
 enum LineMode {
     Line(u8),
     Byte,
@@ -137,56 +289,62 @@ impl PipeView {
     fn progress_from_options(
         conf: &PipeViewConfig,
     ) -> ProgressBar {
-        // What to show, from left to right, in the progress bar
-        let mut template = vec![];
-
-        if let Some(ref msg) = conf.name {
-            template.push(msg.to_string());
-        }
-        if conf.timer {
-            template.push("{elapsed_precise}".to_string());
-        }
-
-        match conf.width {
-            Some(x) => template.push(format!("{{bar:{x}}} {{percent}}")),
-            None => template.push("{wide_bar} {percent}%".to_string()),
-        }
-
-        // Choose whether you want bytes or plain counts on several fields
-        let (pos_name, len_name, per_sec_name) = if conf.line_mode {
-            ("{pos}", "{len}", "{per_sec}")
-        } else {
-            ("{bytes}", "{total_bytes}", "{bytes_per_sec}")
-        };
-
-        // Put the transferred and total together so they don't have a space
-        if conf.bytes && conf.size.is_some() {
-            template.push(format!("{pos_name}/{len_name}"));
-        } else if conf.bytes {
-            template.push(pos_name.to_string());
-        }
-
-        if conf.rate || conf.average_rate {
-            template.push(per_sec_name.to_string());
-        }
-
-        if conf.eta || conf.fineta {
-            template.push("{eta_precise}".to_string());
-        }
-
         let mut style = match conf.size {
             Some(_x) => ProgressStyle::default_bar(),
             None => ProgressStyle::default_spinner(),
         };
 
-        // Okay, that's all fine and dandy but if they don't specify anything,
-        // we should have a nicer default than all empty
-        if !(conf.timer || conf.bytes || conf.rate || conf.average_rate || conf.eta || conf.fineta) {
-            style = style.template(&format!(
-                "{{elapsed}} {{wide_bar}} {{percent}}% {pos_name}/{len_name} {per_sec_name} {{eta}}"
-            )).unwrap();
+        // Use custom format if provided
+        if let Some(ref format_str) = conf.format {
+            let tokens = parse_format_string(format_str);
+            let template = build_indicatif_template(&tokens, conf);
+            style = style.template(&template).unwrap();
         } else {
-            style = style.template(&template.join(" ")).unwrap();
+            // Original logic for building template from individual flags
+            let mut template = vec![];
+
+            if let Some(ref msg) = conf.name {
+                template.push(msg.to_string());
+            }
+            if conf.timer {
+                template.push("{elapsed_precise}".to_string());
+            }
+
+            match conf.width {
+                Some(x) => template.push(format!("{{bar:{x}}} {{percent}}")),
+                None => template.push("{wide_bar} {percent}%".to_string()),
+            }
+
+            // Choose whether you want bytes or plain counts on several fields
+            let (pos_name, len_name, per_sec_name) = if conf.line_mode {
+                ("{pos}", "{len}", "{per_sec}")
+            } else {
+                ("{bytes}", "{total_bytes}", "{bytes_per_sec}")
+            };
+
+            // Put the transferred and total together so they don't have a space
+            if conf.bytes && conf.size.is_some() {
+                template.push(format!("{pos_name}/{len_name}"));
+            } else if conf.bytes {
+                template.push(pos_name.to_string());
+            }
+
+            if conf.rate || conf.average_rate {
+                template.push(per_sec_name.to_string());
+            }
+
+            if conf.eta || conf.fineta {
+                template.push("{eta_precise}".to_string());
+            }
+
+            // Use default if no options specified
+            if !(conf.timer || conf.bytes || conf.rate || conf.average_rate || conf.eta || conf.fineta) {
+                style = style.template(&format!(
+                    "{{elapsed}} {{wide_bar}} {{percent}}% {pos_name}/{len_name} {per_sec_name} {{eta}}"
+                )).unwrap();
+            } else {
+                style = style.template(&template.join(" ")).unwrap();
+            }
         }
 
         let progress = match conf.size {
