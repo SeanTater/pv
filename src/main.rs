@@ -81,6 +81,7 @@ fn main() {
     matches.size = Some(matches.size.unwrap_or(matches
         .input_filenames
         .iter()
+        .filter(|fname| fname.as_str() != "-") // Skip stdin
         .map(|fname| File::open(fname).expect("Failed to open file").metadata().expect("Could not stat file").len())
         .sum()));
 
