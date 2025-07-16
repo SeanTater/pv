@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>com.github.SeanTater.pv</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>pv (Pipe Viewer)</name>
+  <summary>Rust reimplementation of the pipe viewer utility</summary>
+  <description>
+    <p>
+      A modern Rust reimplementation of the classic Unix pv (pipe viewer) utility.
+      This tool monitors the progress of data through a Unix pipeline, showing data
+      transfer rate, amount transferred, time elapsed, and estimated completion time.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Custom format strings for flexible output display</li>
+      <li>Numeric output mode for scripting integration</li>
+      <li>Line counting mode for text processing</li>
+      <li>Multiple file input support</li>
+      <li>Comprehensive CLI compatibility with standard pv</li>
+      <li>High-performance implementation in Rust</li>
+    </ul>
+  </description>
+  <categories>
+    <category>System</category>
+    <category>Monitor</category>
+  </categories>
+  <keywords>
+    <keyword>pipe</keyword>
+    <keyword>viewer</keyword>
+    <keyword>progress</keyword>
+    <keyword>terminal</keyword>
+    <keyword>cli</keyword>
+    <keyword>monitor</keyword>
+  </keywords>
+  <url type="homepage">https://github.com/SeanTater/pv</url>
+  <url type="bugtracker">https://github.com/SeanTater/pv/issues</url>
+  <url type="vcs-browser">https://github.com/SeanTater/pv</url>
+  <provides>
+    <binary>pv</binary>
+  </provides>
+  <releases>
+    <release version="0.3.0" date="2024-01-01">
+      <description>
+        <p>Enhanced feature release with custom format strings and numeric output support.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>

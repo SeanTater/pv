@@ -101,3 +101,35 @@ This Rust implementation covers the core functionality of the original `pv` util
 ### Summary
 
 The current implementation covers exactly **50%** of the standard `pv` features (23 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings and numeric output, but lacks many advanced features that make the original `pv` versatile for different use cases.
+
+## Installation
+
+### Flatpak (Recommended)
+
+Download the latest Flatpak bundle from the [releases page](https://github.com/SeanTater/pv/releases) and install:
+
+```bash
+flatpak install pv.flatpak
+```
+
+Then run with:
+```bash
+flatpak run com.github.SeanTater.pv [options] [files...]
+```
+
+### From Source with Cargo
+
+```bash
+# Install from GitHub
+cargo install --git https://github.com/SeanTater/pv.git
+
+# Or clone and build locally
+git clone https://github.com/SeanTater/pv.git
+cd pv
+cargo build --release
+```
+
+### Build Requirements
+
+- Rust 1.70+ (stable, beta, or nightly)
+- Cargo package manager
