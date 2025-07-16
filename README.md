@@ -38,8 +38,8 @@ This Rust implementation covers the core functionality of the original `pv` util
 | **Missing Core Features** |
 | Buffer percentage (`-T`) | ✅ | ❌ | 🔴 **Not Implemented** |
 | Last written bytes (`-A`) | ✅ | ❌ | 🔴 **Not Implemented** |
-| Custom format (`-F`) | ✅ | ❌ | 🔴 **Not Implemented** |
-| Numeric output (`-n`) | ✅ | ❌ | 🔴 **Not Implemented** |
+| Custom format (`-F`) | ✅ | ✅ | ✅ Implemented |
+| Numeric output (`-n`) | ✅ | ✅ | ✅ Implemented |
 | Quiet mode (`-q`) | ✅ | ❌ | 🔴 **Not Implemented** |
 | **Missing Display Options** |
 | Bits instead of bytes (`-8`) | ✅ | ❌ | 🔴 **Not Implemented** |
@@ -73,8 +73,8 @@ This Rust implementation covers the core functionality of the original `pv` util
 ### Implementation Priority
 
 **High Priority (Core Missing Features):**
-- [ ] Custom format strings (`-F`) - Essential for scripting and integration
-- [ ] Numeric output (`-n`) - Important for automation
+- [x] Custom format strings (`-F`) - Essential for scripting and integration
+- [x] Numeric output (`-n`) - Important for automation
 - [ ] Rate limiting (`-L`) - Common use case for bandwidth control  
 - [ ] Output to file (`-o`) - Basic I/O redirection
 - [ ] Force output (`-f`) - Important for non-terminal usage
@@ -96,4 +96,4 @@ This Rust implementation covers the core functionality of the original `pv` util
 
 ### Summary
 
-The current implementation covers approximately **45%** of the standard `pv` features (21 out of 46 options). It successfully implements the core progress monitoring functionality but lacks many advanced features that make the original `pv` versatile for different use cases.
+The current implementation covers exactly **50%** of the standard `pv` features (23 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings and numeric output, but lacks many advanced features that make the original `pv` versatile for different use cases.

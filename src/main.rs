@@ -72,6 +72,9 @@ struct PipeViewConfig {
     /// Custom format string
     #[arg(short = 'F', long = "format")]
     format: Option<String>,
+    /// Numeric output - write integer values to stderr instead of visual progress
+    #[arg(short = 'n', long = "numeric")]
+    numeric: bool,
 }
 
 fn main() {
@@ -116,6 +119,16 @@ fn main() {
         },
         skip_input_errors: matches.skip_input_errors,
         skip_output_errors: matches.skip_output_errors,
+        numeric_mode: matches.numeric,
+        numeric_config: NumericConfig {
+            show_timer: matches.timer,
+            show_bytes: matches.bytes,
+            show_rate: matches.rate || matches.average_rate,
+            is_line_mode: matches.line_mode,
+            format_string: matches.format.clone(),
+        },
+        last_numeric_output: std::time::Instant::now(),
+        numeric_output_count: 0,
     }
     .pipeview()
     .unwrap();
@@ -283,6 +296,19 @@ struct PipeView {
     line_mode: LineMode,
     skip_input_errors: bool,
     skip_output_errors: bool,
+    numeric_mode: bool,
+    numeric_config: NumericConfig,
+    last_numeric_output: std::time::Instant,
+    numeric_output_count: u64,
+}
+
+#[derive(Debug, Clone)]
+struct NumericConfig {
+    show_timer: bool,
+    show_bytes: bool,
+    show_rate: bool,
+    is_line_mode: bool,
+    format_string: Option<String>,
 }
 
 impl PipeView {
@@ -290,6 +316,18 @@ impl PipeView {
     fn progress_from_options(
         conf: &PipeViewConfig,
     ) -> ProgressBar {
+        // For numeric mode, create a hidden progress bar
+        if conf.numeric {
+            let progress = match conf.size {
+                Some(x) => ProgressBar::new(x),
+                None => ProgressBar::new_spinner(),
+            };
+            progress.set_style(ProgressStyle::default_bar().template("").unwrap());
+            if let Some(sec) = conf.interval {
+                progress.enable_steady_tick(Duration::from_secs_f64(sec));
+            }
+            return progress;
+        }
         let mut style = match conf.size {
             Some(_x) => ProgressStyle::default_bar(),
             None => ProgressStyle::default_spinner(),
@@ -361,6 +399,114 @@ impl PipeView {
         progress
     }
 
+    /// Convert format tokens to numeric output values
+    fn format_token_to_numeric_value(&self, token: &FormatToken) -> Option<String> {
+        match token {
+            FormatToken::Timer => Some(format!("{:.1}", self.progress.elapsed().as_secs_f64())),
+            FormatToken::Bytes => Some(self.progress.position().to_string()),
+            FormatToken::Rate | FormatToken::AverageRate => {
+                let elapsed = self.progress.elapsed().as_secs_f64();
+                if elapsed > 0.0 {
+                    let rate = (self.progress.position() as f64 / elapsed) as u64;
+                    Some(rate.to_string())
+                } else {
+                    Some("0".to_string())
+                }
+            },
+            FormatToken::ProgressAmountOnly => {
+                if let Some(length) = self.progress.length() {
+                    if length > 0 {
+                        let percentage = (self.progress.position() * 100) / length;
+                        Some(percentage.to_string())
+                    } else {
+                        Some("0".to_string())
+                    }
+                } else {
+                    // For unknown size, just show position
+                    Some(self.progress.position().to_string())
+                }
+            },
+            FormatToken::Text(text) => Some(text.clone()),
+            // For numeric mode, progress bars become percentage
+            FormatToken::Progress { .. } | FormatToken::ProgressBarOnly { .. } => {
+                if let Some(length) = self.progress.length() {
+                    if length > 0 {
+                        let percentage = (self.progress.position() * 100) / length;
+                        Some(percentage.to_string())
+                    } else {
+                        Some("0".to_string())
+                    }
+                } else {
+                    Some(self.progress.position().to_string())
+                }
+            },
+            // Ignore visual-only tokens in numeric mode
+            FormatToken::Eta | FormatToken::Fineta | FormatToken::Name => None,
+        }
+    }
+
+    /// Output numeric values to stderr based on configuration
+    fn output_numeric(&self) {
+        if !self.numeric_mode {
+            return;
+        }
+
+        let output = if let Some(ref format_str) = self.numeric_config.format_string {
+            // Parse the format string and convert tokens to numeric values
+            let tokens = parse_format_string(format_str);
+            let mut parts = Vec::new();
+            
+            for token in &tokens {
+                if let Some(value) = self.format_token_to_numeric_value(token) {
+                    parts.push(value);
+                }
+            }
+            
+            parts.join("")
+        } else {
+            // Handle individual flags - use default numeric format
+            let mut parts = Vec::new();
+            
+            if self.numeric_config.show_timer {
+                parts.push(format!("{:.1}", self.progress.elapsed().as_secs_f64()));
+            }
+            
+            if self.numeric_config.show_bytes {
+                parts.push(self.progress.position().to_string());
+            }
+            
+            if self.numeric_config.show_rate {
+                let elapsed = self.progress.elapsed().as_secs_f64();
+                if elapsed > 0.0 {
+                    let rate = (self.progress.position() as f64 / elapsed) as u64;
+                    parts.push(rate.to_string());
+                } else {
+                    parts.push("0".to_string());
+                }
+            }
+            
+            // Default: show percentage if size is known, otherwise position
+            if !self.numeric_config.show_timer && !self.numeric_config.show_bytes && !self.numeric_config.show_rate {
+                if let Some(length) = self.progress.length() {
+                    if length > 0 {
+                        let percentage = (self.progress.position() * 100) / length;
+                        parts.push(percentage.to_string());
+                    } else {
+                        parts.push("0".to_string());
+                    }
+                } else {
+                    parts.push(self.progress.position().to_string());
+                }
+            }
+            
+            parts.join(" ")
+        };
+
+        if !output.is_empty() {
+            eprintln!("{}", output);
+        }
+    }
+
     fn pipeview(&mut self) -> Result<u64, Box<dyn ::std::error::Error>> {
         // Essentially std::io::copy
         let mut buf = [0; DEFAULT_BUF_SIZE];
@@ -369,7 +515,13 @@ impl PipeView {
             // Always skip interruptions, maybe skip other errors
             // Also maybe finish if we read nothing
             let len = match self.source.read(&mut buf) {
-                Ok(0) => return Ok(written),
+                Ok(0) => {
+                    // Final numeric output when done
+                    if self.numeric_mode {
+                        self.output_numeric();
+                    }
+                    return Ok(written);
+                },
                 Ok(len) => len,
                 Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
                 Err(_) if self.skip_input_errors => continue,
@@ -388,6 +540,20 @@ impl PipeView {
                     .inc(buf[..len].iter().filter(|b| **b == delim).count() as u64),
                 LineMode::Byte => self.progress.inc(len as u64),
             };
+            
+            // Output numeric values if in numeric mode (with throttling but always at least one)
+            if self.numeric_mode {
+                let now = std::time::Instant::now();
+                let should_output = self.numeric_output_count == 0 || 
+                    now.duration_since(self.last_numeric_output) >= std::time::Duration::from_millis(100);
+                
+                if should_output {
+                    self.output_numeric();
+                    self.last_numeric_output = now;
+                    self.numeric_output_count += 1;
+                }
+            }
+            
             written += len as u64;
         }
     }
