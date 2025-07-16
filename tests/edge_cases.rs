@@ -54,7 +54,7 @@ fn test_unicode_data() {
 #[test]
 fn test_very_long_lines() {
     let long_line = "x".repeat(10_000);
-    let test_data = format!("{}\n{}\n", long_line, long_line);
+    let test_data = format!("{long_line}\n{long_line}\n");
 
     pv_cmd()
         .write_stdin(test_data.as_bytes())

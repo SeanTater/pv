@@ -215,7 +215,7 @@ fn parse_format_string(format_str: &str) -> Vec<FormatToken> {
                     "average-rate" => FormatToken::AverageRate,
                     "bytes" | "transferred" => FormatToken::Bytes,
                     "name" => FormatToken::Name,
-                    _ => FormatToken::Text(format!("%{{{}}}", format_name)), // Unknown format
+                    _ => FormatToken::Text(format!("%{{{format_name}}}")), // Unknown format
                 };
                 tokens.push(token);
             } else if let Some(ch) = chars.next() {
@@ -228,7 +228,7 @@ fn parse_format_string(format_str: &str) -> Vec<FormatToken> {
                     'a' => FormatToken::AverageRate,
                     'b' => FormatToken::Bytes,
                     'N' => FormatToken::Name,
-                    _ => FormatToken::Text(format!("%{}", ch)), // Unknown format
+                    _ => FormatToken::Text(format!("%{ch}")), // Unknown format
                 };
                 tokens.push(token);
             }
@@ -520,7 +520,7 @@ impl PipeView {
         };
 
         if !output.is_empty() {
-            eprintln!("{}", output);
+            eprintln!("{output}");
         }
     }
 

@@ -170,7 +170,7 @@ fn test_multiple_files() {
         .arg(test_file2.path())
         .assert()
         .success()
-        .stdout(format!("{}{}", test_data1, test_data2));
+        .stdout(format!("{test_data1}{test_data2}"));
 }
 
 #[test]
