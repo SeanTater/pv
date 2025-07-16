@@ -12,3 +12,7 @@ Cargo.lock
 # Test output files
 numeric_output*.txt
 stderr*.txt
+
+# Flatpak build artifacts
+.flatpak-builder/
+flatpak-build/
