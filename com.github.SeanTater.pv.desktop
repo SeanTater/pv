@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=pv (Pipe Viewer)
+Comment=Rust reimplementation of the pipe viewer utility
+GenericName=Terminal Monitor
+Exec=pv
+Icon=com.github.SeanTater.pv
+Terminal=true
+Categories=System;Monitor;ConsoleOnly;
+Keywords=pipe;viewer;progress;terminal;cli;monitor;
+StartupNotify=false
+NoDisplay=true

@@ -1,0 +1,35 @@
+app-id: com.github.SeanTater.pv
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: pv
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --filesystem=host
+  - --device=dri
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/pv/cargo
+    RUST_BACKTRACE: '1'
+modules:
+  - name: pv
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/pv/cargo
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --verbose
+      - install -Dm755 ./target/release/pv -t /app/bin/
+      - install -Dm644 ./com.github.SeanTater.pv.desktop -t /app/share/applications/
+      - install -Dm644 ./com.github.SeanTater.pv.appdata.xml -t /app/share/metainfo/
+    sources:
+      - type: git
+        url: https://github.com/SeanTater/pv.git
+        branch: master
+      - generated-sources.json
