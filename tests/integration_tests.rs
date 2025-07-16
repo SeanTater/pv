@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
-use tempfile::NamedTempFile;
 use std::io::Write;
+use tempfile::NamedTempFile;
 
 /// Helper function to create a test binary command
 fn pv_cmd() -> Command {
@@ -19,7 +19,7 @@ fn create_test_file(content: &str) -> NamedTempFile {
 #[test]
 fn test_basic_piping() {
     let test_data = "Hello, World!\nThis is test data.\n";
-    
+
     let mut cmd = pv_cmd();
     cmd.write_stdin(test_data)
         .assert()
@@ -31,7 +31,7 @@ fn test_basic_piping() {
 fn test_file_input() {
     let test_data = "File content test\nMultiple lines\n";
     let test_file = create_test_file(test_data);
-    
+
     pv_cmd()
         .arg("-f")
         .arg(test_file.path())
@@ -57,7 +57,7 @@ fn test_version_parsing() {
         .arg("--help")
         .output()
         .expect("Failed to execute pv");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("pv"));
@@ -65,18 +65,14 @@ fn test_version_parsing() {
 
 #[test]
 fn test_empty_input() {
-    pv_cmd()
-        .write_stdin("")
-        .assert()
-        .success()
-        .stdout("");
+    pv_cmd().write_stdin("").assert().success().stdout("");
 }
 
 #[test]
 fn test_large_input() {
     // Create a larger test input to verify progress tracking works
     let test_data = "x".repeat(1000);
-    
+
     pv_cmd()
         .write_stdin(test_data.as_bytes())
         .assert()
@@ -87,7 +83,7 @@ fn test_large_input() {
 #[test]
 fn test_line_mode() {
     let test_data = "line1\nline2\nline3\n";
-    
+
     pv_cmd()
         .arg("-l") // line mode
         .write_stdin(test_data)
@@ -99,7 +95,7 @@ fn test_line_mode() {
 #[test]
 fn test_null_terminated_lines() {
     let test_data = "item1\0item2\0item3\0";
-    
+
     pv_cmd()
         .arg("-0") // null-terminated
         .write_stdin(test_data)
@@ -111,7 +107,7 @@ fn test_null_terminated_lines() {
 #[test]
 fn test_size_option() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-s")
         .arg("1000") // specify size
@@ -124,7 +120,7 @@ fn test_size_option() {
 #[test]
 fn test_name_prefix() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-N")
         .arg("test") // name prefix
@@ -137,7 +133,7 @@ fn test_name_prefix() {
 #[test]
 fn test_interval_option() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-i")
         .arg("0.1") // update interval
@@ -150,7 +146,7 @@ fn test_interval_option() {
 #[test]
 fn test_width_option() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-w")
         .arg("50") // width
@@ -166,11 +162,11 @@ fn test_multiple_files() {
     let test_data2 = "Second file content\n";
     let test_file1 = create_test_file(test_data1);
     let test_file2 = create_test_file(test_data2);
-    
+
     pv_cmd()
         .arg("-f")
         .arg(test_file1.path())
-        .arg("-f") 
+        .arg("-f")
         .arg(test_file2.path())
         .assert()
         .success()
@@ -180,7 +176,7 @@ fn test_multiple_files() {
 #[test]
 fn test_dash_as_stdin() {
     let test_data = "stdin test data";
-    
+
     pv_cmd()
         .arg("-f")
         .arg("-") // explicit stdin
@@ -193,7 +189,7 @@ fn test_dash_as_stdin() {
 #[test]
 fn test_skip_input_errors() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-E") // skip input errors
         .write_stdin(test_data)
@@ -205,7 +201,7 @@ fn test_skip_input_errors() {
 #[test]
 fn test_skip_output_errors() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-O") // skip output errors
         .write_stdin(test_data)
@@ -217,11 +213,13 @@ fn test_skip_output_errors() {
 #[test]
 fn test_combined_options() {
     let test_data = "Combined options test\nMultiple lines\n";
-    
+
     pv_cmd()
         .arg("-l") // line mode
-        .arg("-s").arg("100") // size
-        .arg("-N").arg("test") // name
+        .arg("-s")
+        .arg("100") // size
+        .arg("-N")
+        .arg("test") // name
         .write_stdin(test_data)
         .assert()
         .success()
