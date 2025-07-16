@@ -1,4 +1,8 @@
 # Pipe viewer reimplementation
+
+[![CI](https://github.com/SeanTater/pv/workflows/CI/badge.svg)](https://github.com/SeanTater/pv/actions)
+[![codecov](https://codecov.io/gh/SeanTater/pv/branch/master/graph/badge.svg)](https://codecov.io/gh/SeanTater/pv)
+
 `pv` is a Unix pipe monitoring application. (And this is copy of the much older original)
 
 You can use it in places where a progressbar, or at least a flow rate meter,
