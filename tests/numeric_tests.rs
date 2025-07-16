@@ -28,7 +28,7 @@ fn test_numeric_option_exists() {
 #[test]
 fn test_basic_numeric_output() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .write_stdin(test_data)
@@ -41,7 +41,7 @@ fn test_basic_numeric_output() {
 #[test]
 fn test_numeric_with_bytes() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-b") // bytes
@@ -55,7 +55,7 @@ fn test_numeric_with_bytes() {
 #[test]
 fn test_numeric_with_timer() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-t") // timer
@@ -69,7 +69,7 @@ fn test_numeric_with_timer() {
 #[test]
 fn test_numeric_with_rate() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-r") // rate
@@ -83,7 +83,7 @@ fn test_numeric_with_rate() {
 #[test]
 fn test_numeric_with_timer_and_bytes() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-t") // timer
@@ -98,7 +98,7 @@ fn test_numeric_with_timer_and_bytes() {
 #[test]
 fn test_numeric_with_all_flags() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-t") // timer
@@ -114,7 +114,7 @@ fn test_numeric_with_all_flags() {
 #[test]
 fn test_numeric_with_format_string() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-F") // format
@@ -129,7 +129,7 @@ fn test_numeric_with_format_string() {
 #[test]
 fn test_numeric_with_format_text() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-F") // format
@@ -144,7 +144,7 @@ fn test_numeric_with_format_text() {
 #[test]
 fn test_numeric_with_format_percentage() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-F") // format
@@ -159,7 +159,7 @@ fn test_numeric_with_format_percentage() {
 #[test]
 fn test_numeric_line_mode() {
     let test_data = "line1\nline2\nline3\n";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-l") // line mode
@@ -174,10 +174,11 @@ fn test_numeric_line_mode() {
 #[test]
 fn test_numeric_with_size() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
-        .arg("-s").arg("100") // size
+        .arg("-s")
+        .arg("100") // size
         .write_stdin(test_data)
         .assert()
         .success()
@@ -189,7 +190,7 @@ fn test_numeric_with_size() {
 fn test_numeric_with_file_input() {
     let test_data = "File numeric test\nMultiple lines\n";
     let test_file = create_test_file(test_data);
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-b") // bytes
@@ -215,7 +216,7 @@ fn test_numeric_empty_input() {
 #[test]
 fn test_numeric_large_input() {
     let test_data = "x".repeat(1000);
-    
+
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-b") // bytes
@@ -229,7 +230,7 @@ fn test_numeric_large_input() {
 #[test]
 fn test_numeric_format_with_progress_bar() {
     let test_data = "test data";
-    
+
     // In numeric mode, progress bars should show percentage/position
     pv_cmd()
         .arg("-n") // numeric mode
@@ -245,7 +246,7 @@ fn test_numeric_format_with_progress_bar() {
 #[test]
 fn test_numeric_format_unknown_tokens() {
     let test_data = "test data";
-    
+
     // Unknown format tokens should be ignored in numeric mode
     pv_cmd()
         .arg("-n") // numeric mode
@@ -255,14 +256,16 @@ fn test_numeric_format_unknown_tokens() {
         .assert()
         .success()
         .stdout(test_data)
-        .stderr(predicate::str::contains("9") // bytes
-               .and(predicate::str::contains("done"))); // text
+        .stderr(
+            predicate::str::contains("9") // bytes
+                .and(predicate::str::contains("done")),
+        ); // text
 }
 
 #[test]
 fn test_numeric_overrides_visual_progress() {
     let test_data = "test data";
-    
+
     // Numeric mode should not show visual progress, only stderr output
     let output = pv_cmd()
         .arg("-n") // numeric mode
@@ -270,7 +273,7 @@ fn test_numeric_overrides_visual_progress() {
         .write_stdin(test_data)
         .output()
         .expect("Failed to execute pv");
-    
+
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), test_data);
     assert!(String::from_utf8_lossy(&output.stderr).contains("9"));

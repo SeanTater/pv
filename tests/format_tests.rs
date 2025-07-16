@@ -28,7 +28,7 @@ fn test_format_option_exists() {
 #[test]
 fn test_basic_format_string() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("--format")
         .arg("%t %b %r") // timer, bytes, rate
@@ -41,7 +41,7 @@ fn test_basic_format_string() {
 #[test]
 fn test_format_with_curly_braces() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("%{timer} %{bytes} %{rate}") // extended syntax
@@ -54,7 +54,7 @@ fn test_format_with_curly_braces() {
 #[test]
 fn test_format_progress_bar() {
     let test_data = "test data for progress";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("[%{progress-bar-only}] %{progress-amount-only}")
@@ -67,7 +67,7 @@ fn test_format_progress_bar() {
 #[test]
 fn test_format_with_text() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("Processing: %{bytes} bytes at %{rate}")
@@ -80,7 +80,7 @@ fn test_format_with_text() {
 #[test]
 fn test_format_width_specifier() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("%20{progress} %{bytes}")
@@ -93,7 +93,7 @@ fn test_format_width_specifier() {
 #[test]
 fn test_format_percent_escape() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("100%% complete: %{bytes}")
@@ -106,11 +106,12 @@ fn test_format_percent_escape() {
 #[test]
 fn test_format_with_eta() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("%t elapsed, %{eta} remaining")
-        .arg("-s").arg("100") // provide size for ETA calculation
+        .arg("-s")
+        .arg("100") // provide size for ETA calculation
         .write_stdin(test_data)
         .assert()
         .success()
@@ -120,11 +121,12 @@ fn test_format_with_eta() {
 #[test]
 fn test_format_with_name() {
     let test_data = "test data";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("%{name}%{bytes}")
-        .arg("-N").arg("TestFile") // provide name
+        .arg("-N")
+        .arg("TestFile") // provide name
         .write_stdin(test_data)
         .assert()
         .success()
@@ -134,7 +136,7 @@ fn test_format_with_name() {
 #[test]
 fn test_format_timer_only() {
     let test_data = "timer test";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("Time: %t")
@@ -147,7 +149,7 @@ fn test_format_timer_only() {
 #[test]
 fn test_format_bytes_only() {
     let test_data = "bytes test";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("Transferred: %b")
@@ -160,7 +162,7 @@ fn test_format_bytes_only() {
 #[test]
 fn test_format_rate_only() {
     let test_data = "rate test";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("Speed: %r")
@@ -173,7 +175,7 @@ fn test_format_rate_only() {
 #[test]
 fn test_format_with_line_mode() {
     let test_data = "line1\nline2\nline3\n";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("Lines: %{bytes}")
@@ -187,7 +189,7 @@ fn test_format_with_line_mode() {
 #[test]
 fn test_format_complex_template() {
     let test_data = "complex format test";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("[%{timer}] %{progress-bar-only} %{progress-amount-only} (%{bytes}/%{rate})")
@@ -200,7 +202,7 @@ fn test_format_complex_template() {
 #[test]
 fn test_format_unknown_sequence() {
     let test_data = "unknown format test";
-    
+
     // Test that unknown format sequences are passed through as literal text
     pv_cmd()
         .arg("-F")
@@ -214,7 +216,7 @@ fn test_format_unknown_sequence() {
 #[test]
 fn test_format_empty_string() {
     let test_data = "empty format test";
-    
+
     pv_cmd()
         .arg("-F")
         .arg("")
@@ -227,7 +229,7 @@ fn test_format_empty_string() {
 #[test]
 fn test_format_overrides_individual_flags() {
     let test_data = "override test";
-    
+
     // When format is specified, individual flags should be ignored
     pv_cmd()
         .arg("-F")
@@ -244,11 +246,12 @@ fn test_format_overrides_individual_flags() {
 fn test_format_with_file_input() {
     let test_data = "File format test\nMultiple lines\n";
     let test_file = create_test_file(test_data);
-    
+
     pv_cmd()
         .arg("-F")
         .arg("File: %{name}%{bytes}")
-        .arg("-N").arg("TestFile")
+        .arg("-N")
+        .arg("TestFile")
         .arg("-f")
         .arg(test_file.path())
         .assert()
@@ -259,7 +262,7 @@ fn test_format_with_file_input() {
 #[test]
 fn test_format_standard_compatibility() {
     let test_data = "compatibility test";
-    
+
     // Test format that matches standard pv default: "%b %t %r %p %e"
     pv_cmd()
         .arg("-F")
