@@ -26,8 +26,8 @@ modules:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --verbose
       - install -Dm755 ./target/release/pv -t /app/bin/
-      - install -Dm644 com.github.SeanTater.pv.desktop -t /app/share/applications/
-      - install -Dm644 com.github.SeanTater.pv.appdata.xml -t /app/share/metainfo/
+      - install -Dm644 ./com.github.SeanTater.pv.desktop -t /app/share/applications/
+      - install -Dm644 ./com.github.SeanTater.pv.appdata.xml -t /app/share/metainfo/
     sources:
       - type: git
         url: https://github.com/SeanTater/pv.git
