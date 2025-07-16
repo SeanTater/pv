@@ -31,5 +31,5 @@ modules:
     sources:
       - type: git
         url: https://github.com/SeanTater/pv.git
-        branch: master
+        branch: feature/flatpak-support
       - generated-sources.json

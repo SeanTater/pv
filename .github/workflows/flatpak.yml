@@ -4,8 +4,9 @@ on:
   push:
     branches: [ master, main ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ master, main ]
+  # Note: Flatpak build disabled on PRs because files don't exist in master yet
+  # pull_request:
+  #   branches: [ master, main ]
 
 jobs:
   flatpak:
