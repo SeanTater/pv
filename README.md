@@ -104,7 +104,23 @@ The current implementation covers exactly **50%** of the standard `pv` features 
 
 ## Installation
 
-### Flatpak (Recommended)
+### Static Binary (Recommended)
+
+Download the pre-built static binary for Linux x86_64 from the [releases page](https://github.com/SeanTater/pv/releases):
+
+```bash
+# Download and install the latest release
+curl -L -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-linux-x86_64
+chmod +x pv
+sudo mv pv /usr/local/bin/
+
+# Verify installation
+pv --version
+```
+
+The static binary has no dependencies and works on any Linux x86_64 system.
+
+### Flatpak
 
 Download the latest Flatpak bundle from the [releases page](https://github.com/SeanTater/pv/releases) and install:
 

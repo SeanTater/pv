@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Run clippy
+      run: cargo clippy -- -D warnings
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+  build-static:
+    name: Build Static Binary
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-musl
+
+    - name: Install musl tools
+      run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+    - name: Build static binary
+      run: |
+        cargo build --release --target x86_64-unknown-linux-musl
+        strip target/x86_64-unknown-linux-musl/release/pv
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pv-linux-x86_64
+        path: target/x86_64-unknown-linux-musl/release/pv
+        retention-days: 30
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [test, build-static]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Download binary artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: pv-linux-x86_64
+        path: ./artifacts
+
+    - name: Rename binary for release
+      run: |
+        mv ./artifacts/pv ./artifacts/pv-linux-x86_64
+        chmod +x ./artifacts/pv-linux-x86_64
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: ./artifacts/pv-linux-x86_64
+        name: Release ${{ github.ref_name }}
+        body: |
+          ## Installation
+
+          ### Static Binary (Linux x86_64)
+          Download the static binary and make it executable:
+          ```bash
+          curl -L -o pv https://github.com/SeanTater/pv/releases/download/${{ github.ref_name }}/pv-linux-x86_64
+          chmod +x pv
+          sudo mv pv /usr/local/bin/
+          ```
+
+          ### Flatpak
+          Download the `pv.flatpak` file from [CI artifacts](https://github.com/SeanTater/pv/actions) and install with:
+          ```bash
+          flatpak install pv.flatpak
+          ```
+
+          ### From Source
+          ```bash
+          cargo install --git https://github.com/SeanTater/pv.git --tag ${{ github.ref_name }}
+          ```
+
+          ## Verification
+          Verify the installation:
+          ```bash
+          pv --version
+          ```
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
