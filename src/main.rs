@@ -574,10 +574,21 @@ impl PipeView {
             let target_duration =
                 std::time::Duration::from_secs_f64(bytes_written as f64 / rate_limit as f64);
 
-            // Simple approach: sleep for the time it should take to transfer this amount
-            if target_duration > std::time::Duration::from_millis(1) {
+            // Get the current time and calculate elapsed time since the last rate limit
+            let now = std::time::Instant::now();
+            if let Some(last_time) = self.last_rate_limit_time {
+                let elapsed = now.duration_since(last_time);
+                if target_duration > elapsed {
+                    // Sleep for the remaining duration
+                    std::thread::sleep(target_duration - elapsed);
+                }
+            } else {
+                // If this is the first call, sleep for the full target duration
                 std::thread::sleep(target_duration);
             }
+            
+            // Update the last rate limit time
+            self.last_rate_limit_time = Some(now);
         }
     }
 
