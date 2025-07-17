@@ -48,23 +48,5 @@ jobs:
       with:
         name: pv-flatpak-${{ github.sha }}
         
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: pv.flatpak
-        name: Release ${{ github.ref_name }}
-        body: |
-          ## Installation
-          
-          ### Flatpak
-          Download the `pv.flatpak` file and install with:
-          ```bash
-          flatpak install pv.flatpak
-          ```
-          
-          ### From Source
-          ```bash
-          cargo install --git https://github.com/SeanTater/pv.git --tag ${{ github.ref_name }}
-          ```
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # Note: Release creation is now handled by the main release workflow
+    # This job only focuses on Flathub publishing when that's implemented

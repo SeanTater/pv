@@ -70,7 +70,9 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Install cargo-tarpaulin
-      run: cargo install cargo-tarpaulin
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: cargo-tarpaulin
 
     - name: Generate coverage report
       run: cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
@@ -94,7 +96,9 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Install cargo-audit
-      run: cargo install cargo-audit
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: cargo-audit
 
     - name: Security audit
       run: cargo audit
