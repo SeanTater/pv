@@ -174,6 +174,8 @@ fn main() {
         last_numeric_output: std::time::Instant::now(),
         numeric_output_count: 0,
         rate_limit: matches.rate_limit,
+        rate_limit_start: std::time::Instant::now(),
+        total_bytes_transferred: 0,
     }
     .pipeview()
     .unwrap();
@@ -350,6 +352,8 @@ struct PipeView {
     last_numeric_output: std::time::Instant,
     numeric_output_count: u64,
     rate_limit: Option<u64>,
+    rate_limit_start: std::time::Instant,
+    total_bytes_transferred: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -570,25 +574,22 @@ impl PipeView {
                 return; // No rate limiting if rate is 0
             }
 
-            // Calculate how long this transfer should take at the target rate
-            let target_duration =
-                std::time::Duration::from_secs_f64(bytes_written as f64 / rate_limit as f64);
+            // Update total bytes transferred
+            self.total_bytes_transferred += bytes_written;
 
-            // Get the current time and calculate elapsed time since the last rate limit
-            let now = std::time::Instant::now();
-            if let Some(last_time) = self.last_rate_limit_time {
-                let elapsed = now.duration_since(last_time);
-                if target_duration > elapsed {
-                    // Sleep for the remaining duration
-                    std::thread::sleep(target_duration - elapsed);
+            // Calculate how long we should have taken so far
+            let elapsed = self.rate_limit_start.elapsed();
+            let target_duration = std::time::Duration::from_secs_f64(
+                self.total_bytes_transferred as f64 / rate_limit as f64
+            );
+
+            // If we're ahead of schedule, sleep for the remaining time
+            if target_duration > elapsed {
+                let sleep_duration = target_duration - elapsed;
+                if sleep_duration > std::time::Duration::from_millis(1) {
+                    std::thread::sleep(sleep_duration);
                 }
-            } else {
-                // If this is the first call, sleep for the full target duration
-                std::thread::sleep(target_duration);
             }
-            
-            // Update the last rate limit time
-            self.last_rate_limit_time = Some(now);
         }
     }
 
