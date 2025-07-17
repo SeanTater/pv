@@ -66,10 +66,34 @@ jobs:
         path: target/x86_64-unknown-linux-musl/release/pv
         retention-days: 30
 
+  flatpak:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-23.08
+      options: --privileged
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Build Flatpak
+      uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      with:
+        bundle: pv.flatpak
+        manifest-path: com.github.SeanTater.pv.yml
+        cache-key: flatpak-builder-${{ github.sha }}
+        
+    - name: Upload Flatpak Bundle
+      uses: actions/upload-artifact@v4
+      with:
+        name: pv-flatpak-${{ github.sha }}
+        path: pv.flatpak
+        retention-days: 30
+
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [test, build-static]
+    needs: [test, build-static, flatpak]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -83,6 +107,12 @@ jobs:
         name: pv-linux-x86_64
         path: ./artifacts
 
+    - name: Download Flatpak artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: pv-flatpak-${{ github.sha }}
+        path: ./artifacts
+
     - name: Rename binary for release
       run: |
         mv ./artifacts/pv ./artifacts/pv-linux-x86_64
@@ -91,7 +121,9 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        files: ./artifacts/pv-linux-x86_64
+        files: |
+          ./artifacts/pv-linux-x86_64
+          ./artifacts/pv.flatpak
         name: Release ${{ github.ref_name }}
         body: |
           ## Installation
@@ -105,8 +137,9 @@ jobs:
           ```
 
           ### Flatpak
-          Download the `pv.flatpak` file from [CI artifacts](https://github.com/SeanTater/pv/actions) and install with:
+          Download the `pv.flatpak` file from the release assets and install with:
           ```bash
+          curl -L -o pv.flatpak https://github.com/SeanTater/pv/releases/download/${{ github.ref_name }}/pv.flatpak
           flatpak install pv.flatpak
           ```
 
