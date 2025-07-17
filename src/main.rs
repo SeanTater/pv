@@ -15,7 +15,7 @@ fn parse_rate_limit(s: &str) -> Result<u64, String> {
 
     let (number_part, suffix) = if let Some(last_char) = s.chars().last() {
         if last_char.is_ascii_alphabetic() {
-            (&s[..s.len()-1], last_char.to_ascii_lowercase())
+            (&s[..s.len() - 1], last_char.to_ascii_lowercase())
         } else {
             (s, '\0')
         }
@@ -23,7 +23,8 @@ fn parse_rate_limit(s: &str) -> Result<u64, String> {
         (s, '\0')
     };
 
-    let base_rate: u64 = number_part.parse()
+    let base_rate: u64 = number_part
+        .parse()
         .map_err(|_| format!("Invalid number: {}", number_part))?;
 
     let multiplier = match suffix {
@@ -35,7 +36,8 @@ fn parse_rate_limit(s: &str) -> Result<u64, String> {
         _ => return Err(format!("Invalid suffix: {}. Use k, m, g, or t", suffix)),
     };
 
-    base_rate.checked_mul(multiplier)
+    base_rate
+        .checked_mul(multiplier)
         .ok_or_else(|| "Rate limit too large".to_string())
 }
 
@@ -567,10 +569,11 @@ impl PipeView {
             if rate_limit == 0 {
                 return; // No rate limiting if rate is 0
             }
-            
+
             // Calculate how long this transfer should take at the target rate
-            let target_duration = std::time::Duration::from_secs_f64(bytes_written as f64 / rate_limit as f64);
-            
+            let target_duration =
+                std::time::Duration::from_secs_f64(bytes_written as f64 / rate_limit as f64);
+
             // Simple approach: sleep for the time it should take to transfer this amount
             if target_duration > std::time::Duration::from_millis(1) {
                 std::thread::sleep(target_duration);
@@ -610,11 +613,11 @@ impl PipeView {
                     let lines = buf[..len].iter().filter(|b| **b == delim).count() as u64;
                     self.progress.inc(lines);
                     lines
-                },
+                }
                 LineMode::Byte => {
                     self.progress.inc(len as u64);
                     len as u64
-                },
+                }
             };
 
             // Apply rate limiting
