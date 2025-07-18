@@ -33,7 +33,6 @@ fn test_file_input() {
     let test_file = create_test_file(test_data);
 
     pv_cmd()
-        .arg("-f")
         .arg(test_file.path())
         .assert()
         .success()
@@ -164,9 +163,7 @@ fn test_multiple_files() {
     let test_file2 = create_test_file(test_data2);
 
     pv_cmd()
-        .arg("-f")
         .arg(test_file1.path())
-        .arg("-f")
         .arg(test_file2.path())
         .assert()
         .success()
@@ -178,7 +175,6 @@ fn test_dash_as_stdin() {
     let test_data = "stdin test data";
 
     pv_cmd()
-        .arg("-f")
         .arg("-") // explicit stdin
         .write_stdin(test_data)
         .assert()

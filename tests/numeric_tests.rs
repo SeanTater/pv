@@ -194,7 +194,6 @@ fn test_numeric_with_file_input() {
     pv_cmd()
         .arg("-n") // numeric mode
         .arg("-b") // bytes
-        .arg("-f")
         .arg(test_file.path())
         .assert()
         .success()
