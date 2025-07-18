@@ -161,7 +161,9 @@ fn main() {
     let sink: Box<dyn Write> = if let Some(ref output_path) = matches.output_file {
         // Output to file
         Box::new(io::BufWriter::new(
-            File::create(output_path).unwrap_or_else(|e| panic!("Failed to create output file '{}': {}", output_path, e)),
+            File::create(output_path).unwrap_or_else(|e| {
+                panic!("Failed to create output file '{}': {}", output_path, e)
+            }),
         ))
     } else {
         // Output to stdout
