@@ -59,7 +59,7 @@ This Rust implementation covers the core functionality of the original `pv` util
 | Cursor positioning (`-c`) | ✅ | 🔴 Not Implemented |
 | **Data Transfer Features** |
 | Output to file (`-o`) | ✅ | 🔴 Not Implemented |
-| Rate limiting (`-L`) | ✅ | 🔴 Not Implemented |
+| Rate limiting (`-L`) | ✅ | ✅ Implemented |
 | Buffer size control (`-B`) | ✅ | 🔴 Not Implemented |
 | No splice (`-C`) | ✅ | 🔴 Not Implemented |
 | Skip output errors (`-O`) | ✅ | ✅ Implemented |
@@ -79,7 +79,7 @@ This Rust implementation covers the core functionality of the original `pv` util
 **High Priority (Additional Core Features):**
 - [x] Custom format strings (`-F`) - Essential for scripting and integration
 - [x] Numeric output (`-n`) - Important for automation
-- [ ] Rate limiting (`-L`) - Common use case for bandwidth control  
+- [x] Rate limiting (`-L`) - Common use case for bandwidth control  
 - [ ] Output to file (`-o`) - Basic I/O redirection
 - [ ] Force output (`-f`) - Important for non-terminal usage
 - [ ] Quiet mode (`-q`) - Essential for silent operation
@@ -100,7 +100,40 @@ This Rust implementation covers the core functionality of the original `pv` util
 
 ### Summary
 
-The current implementation covers exactly **50%** of the standard `pv` features (23 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings and numeric output, but lacks many advanced features that make the original `pv` versatile for different use cases.
+The current implementation covers exactly **52%** of the standard `pv` features (24 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings, numeric output, and rate limiting, but lacks many advanced features that make the original `pv` versatile for different use cases.
+
+### Out of Scope Features
+
+Some features are currently **out of scope** for this implementation due to limitations with the underlying `indicatif` library or complexity considerations:
+
+#### Not Planned (Significant Technical Challenges)
+
+**Remote Control (`-R`)**
+- Requires inter-process communication and signal handling
+- `indicatif` is designed for single-process use
+- Would require major architectural changes
+
+**Cursor Positioning (`-c`)**
+- Requires precise terminal control beyond `indicatif`'s abstractions
+- Complex interaction with terminal state management
+- Limited practical use cases
+
+**Buffer Percentage (`-T`) & Last Written Bytes (`-A`)**
+- Requires access to internal buffer state that `indicatif` doesn't expose
+- Would need custom buffering layer implementation
+
+#### Lower Priority (Possible but Complex)
+
+**Gauge Mode (`-g`)**
+- Different display paradigm than `indicatif`'s percentage-focused approach
+- Would require custom progress bar rendering
+
+**Advanced Terminal Features**
+- Bar style customization (`-u`)
+- Complex multi-line displays (`-x`, `-v`)
+- May require extending `indicatif` or custom terminal handling
+
+The focus remains on implementing high-value features that provide the most utility while working well within the `indicatif` framework.
 
 ## Installation
 
@@ -149,3 +182,47 @@ cargo build --release
 
 - Rust 1.70+ (stable, beta, or nightly)
 - Cargo package manager
+
+## Development
+
+### Setting up Pre-commit Hooks
+
+This project uses pre-commit hooks to automatically format code and run linting checks before commits. This prevents formatting-related CI failures.
+
+**Option 1: Automatic Git Hook (Recommended)**
+The repository includes a Git pre-commit hook that will automatically run `cargo fmt` and `cargo clippy`:
+
+```bash
+# Hook is already set up - just make sure it's executable
+chmod +x .git/hooks/pre-commit
+```
+
+**Option 2: Pre-commit Framework**
+For more advanced setups, install the `pre-commit` framework:
+
+```bash
+# Install pre-commit (requires Python)
+uv tool install pre-commit
+
+# Install the git hook scripts
+pre-commit install
+
+# Optionally run against all files
+pre-commit run --all-files
+```
+
+### Manual Commands
+
+```bash
+# Format code
+cargo fmt
+
+# Check linting
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Run tests
+cargo test
+
+# Check formatting without fixing
+cargo fmt --all -- --check
+```

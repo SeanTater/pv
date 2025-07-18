@@ -7,6 +7,40 @@ use std::time::Duration;
 
 const DEFAULT_BUF_SIZE: usize = 65536;
 
+fn parse_rate_limit(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("Rate limit cannot be empty".to_string());
+    }
+
+    let (number_part, suffix) = if let Some(last_char) = s.chars().last() {
+        if last_char.is_ascii_alphabetic() {
+            (&s[..s.len() - 1], last_char.to_ascii_lowercase())
+        } else {
+            (s, '\0')
+        }
+    } else {
+        (s, '\0')
+    };
+
+    let base_rate: u64 = number_part
+        .parse()
+        .map_err(|_| format!("Invalid number: {number_part}"))?;
+
+    let multiplier = match suffix {
+        '\0' => 1,
+        'k' => 1024,
+        'm' => 1024 * 1024,
+        'g' => 1024 * 1024 * 1024,
+        't' => 1024_u64.pow(4),
+        _ => return Err(format!("Invalid suffix: {suffix}. Use k, m, g, or t")),
+    };
+
+    base_rate
+        .checked_mul(multiplier)
+        .ok_or_else(|| "Rate limit too large".to_string())
+}
+
 #[derive(Parser, Debug)]
 struct PipeViewConfig {
     /// Set estimated data size to SIZE bytes
@@ -75,6 +109,9 @@ struct PipeViewConfig {
     /// Numeric output - write integer values to stderr instead of visual progress
     #[arg(short = 'n', long = "numeric")]
     numeric: bool,
+    /// Rate limit data transfer to RATE bytes per second (k/m/g/t suffixes allowed)
+    #[arg(short = 'L', long = "rate-limit", value_parser = parse_rate_limit)]
+    rate_limit: Option<u64>,
 }
 
 fn main() {
@@ -136,6 +173,9 @@ fn main() {
         },
         last_numeric_output: std::time::Instant::now(),
         numeric_output_count: 0,
+        rate_limit: matches.rate_limit,
+        rate_limit_start: std::time::Instant::now(),
+        total_bytes_transferred: 0,
     }
     .pipeview()
     .unwrap();
@@ -311,6 +351,9 @@ struct PipeView {
     numeric_config: NumericConfig,
     last_numeric_output: std::time::Instant,
     numeric_output_count: u64,
+    rate_limit: Option<u64>,
+    rate_limit_start: std::time::Instant,
+    total_bytes_transferred: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -524,6 +567,32 @@ impl PipeView {
         }
     }
 
+    /// Handle rate limiting by sleeping to maintain target rate
+    fn apply_rate_limit(&mut self, bytes_written: u64) {
+        if let Some(rate_limit) = self.rate_limit {
+            if rate_limit == 0 {
+                return; // No rate limiting if rate is 0
+            }
+
+            // Update total bytes transferred
+            self.total_bytes_transferred += bytes_written;
+
+            // Calculate how long we should have taken so far
+            let elapsed = self.rate_limit_start.elapsed();
+            let target_duration = std::time::Duration::from_secs_f64(
+                self.total_bytes_transferred as f64 / rate_limit as f64,
+            );
+
+            // If we're ahead of schedule, sleep for the remaining time
+            if target_duration > elapsed {
+                let sleep_duration = target_duration - elapsed;
+                if sleep_duration > std::time::Duration::from_millis(1) {
+                    std::thread::sleep(sleep_duration);
+                }
+            }
+        }
+    }
+
     fn pipeview(&mut self) -> Result<u64, Box<dyn ::std::error::Error>> {
         // Essentially std::io::copy
         let mut buf = [0; DEFAULT_BUF_SIZE];
@@ -551,12 +620,20 @@ impl PipeView {
                 Err(_) if self.skip_output_errors => continue,
                 Err(e) => return Err(e.into()),
             };
-            match self.line_mode {
-                LineMode::Line(delim) => self
-                    .progress
-                    .inc(buf[..len].iter().filter(|b| **b == delim).count() as u64),
-                LineMode::Byte => self.progress.inc(len as u64),
+            let transfer_unit = match self.line_mode {
+                LineMode::Line(delim) => {
+                    let lines = buf[..len].iter().filter(|b| **b == delim).count() as u64;
+                    self.progress.inc(lines);
+                    lines
+                }
+                LineMode::Byte => {
+                    self.progress.inc(len as u64);
+                    len as u64
+                }
             };
+
+            // Apply rate limiting
+            self.apply_rate_limit(transfer_unit);
 
             // Output numeric values if in numeric mode (with throttling but always at least one)
             if self.numeric_mode {

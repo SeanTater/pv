@@ -68,6 +68,8 @@ Default template when no specific options are provided shows elapsed time, progr
 - Automatically estimates total size from input file metadata when possible
 - Implements error skipping for both input and output operations
 - Uses `indicatif::ProgressBar` for cross-platform progress display
+- Rate limiting (`-L` flag) with k/m/g/t suffix support for bytes or lines per second
+- Cumulative timing-based rate limiting that tracks total transfer progress
 
 ## Testing
 
@@ -76,19 +78,41 @@ The project includes comprehensive integration tests in the `tests/` directory:
 - `integration_tests.rs` - Basic functionality tests (17 tests)
 - `format_tests.rs` - Custom format string tests (19 tests) 
 - `edge_cases.rs` - Edge cases and error handling (22 tests)
+- `numeric_tests.rs` - Numeric output mode tests (18 tests)
+- `rate_limiting_tests.rs` - Rate limiting functionality tests (11 tests)
 
-Tests use `assert_cmd` for CLI testing and `tempfile` for file-based tests. All tests verify that data passes through correctly while testing the progress monitoring functionality.
+Tests use `assert_cmd` for CLI testing and `tempfile` for file-based tests. All tests verify that data passes through correctly while testing the progress monitoring functionality. Rate limiting tests include timing-based assertions to verify actual rate limiting behavior.
 
 ## Development Workflow
 
 When adding new features:
 
 1. Create a feature branch: `git checkout -b feature/feature-name`
-2. Implement the feature with tests
-3. Run tests: `cargo test`
-4. Run linting: `cargo clippy`
-5. Commit changes with descriptive messages
-6. Push branch: `git push -u origin feature/feature-name`
-7. Create PR: `gh pr create --title "Add feature" --body "Description"`
+2. Set up pre-commit hooks (first time only): `chmod +x .git/hooks/pre-commit`
+3. Implement the feature with tests
+4. Run tests: `cargo test`
+5. Run linting: `cargo clippy`
+6. Format code: `cargo fmt` (or rely on pre-commit hook)
+7. Commit changes with descriptive messages
+8. Push branch: `git push -u origin feature/feature-name`
+9. Create PR: `gh pr create --title "Add feature" --body "Description"`
 
 Always ensure tests pass before creating pull requests.
+
+## Pre-commit Hooks
+
+The repository includes a Git pre-commit hook that automatically:
+- Runs `cargo fmt` to format code and stages formatted files
+- Runs `cargo clippy` to check for linting issues
+- Prevents commits that don't pass formatting or linting checks
+
+The hook is located at `.git/hooks/pre-commit` and should be automatically executable. If not, run:
+```bash
+chmod +x .git/hooks/pre-commit
+```
+
+For advanced setups, a `.pre-commit-config.yaml` is also provided for use with the `pre-commit` framework:
+```bash
+uv tool install pre-commit
+pre-commit install
+```
