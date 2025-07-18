@@ -93,7 +93,7 @@ struct PipeViewConfig {
     /// Ignored for compatibility
     #[arg(short = 'B')]
     buffer_size: Option<u64>,
-    /// Ignored for compatibility; if you want "quiet", don't use pv
+    /// Do not output any transfer information at all
     #[arg(short = 'q')]
     quiet: bool,
     /// Ignored for compatibility; this implementation always shows the progressbar
@@ -182,6 +182,7 @@ fn main() {
         skip_input_errors: matches.skip_input_errors,
         skip_output_errors: matches.skip_output_errors,
         numeric_mode: matches.numeric,
+        quiet_mode: matches.quiet,
         numeric_config: NumericConfig {
             show_timer: matches.timer,
             show_bytes: matches.bytes,
@@ -365,6 +366,7 @@ struct PipeView {
     skip_input_errors: bool,
     skip_output_errors: bool,
     numeric_mode: bool,
+    quiet_mode: bool,
     numeric_config: NumericConfig,
     last_numeric_output: std::time::Instant,
     numeric_output_count: u64,
@@ -384,6 +386,17 @@ struct NumericConfig {
 impl PipeView {
     /// Set up the progress bar from the parsed CLI options
     fn progress_from_options(conf: &PipeViewConfig) -> ProgressBar {
+        // For quiet mode, create a completely hidden progress bar
+        if conf.quiet {
+            let progress = match conf.size {
+                Some(x) => ProgressBar::new(x),
+                None => ProgressBar::new_spinner(),
+            };
+            progress.set_style(ProgressStyle::default_bar().template("").unwrap());
+            progress.set_draw_target(ProgressDrawTarget::hidden());
+            return progress;
+        }
+
         // For numeric mode, create a hidden progress bar
         if conf.numeric {
             let progress = match conf.size {
@@ -531,7 +544,7 @@ impl PipeView {
 
     /// Output numeric values to stderr based on configuration
     fn output_numeric(&self) {
-        if !self.numeric_mode {
+        if !self.numeric_mode || self.quiet_mode {
             return;
         }
 

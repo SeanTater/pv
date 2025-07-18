@@ -221,3 +221,78 @@ fn test_combined_options() {
         .success()
         .stdout(test_data);
 }
+
+#[test]
+fn test_quiet_mode_basic() {
+    let test_data = "Hello, quiet world!\nThis should pass through silently.\n";
+
+    let mut cmd = pv_cmd();
+    cmd.arg("-q") // quiet mode
+        .write_stdin(test_data)
+        .assert()
+        .success()
+        .stdout(test_data)
+        .stderr(""); // Should have no stderr output in quiet mode
+}
+
+#[test]
+fn test_quiet_mode_with_file() {
+    let test_data = "File content in quiet mode\nNo progress should be shown\n";
+    let test_file = create_test_file(test_data);
+
+    pv_cmd()
+        .arg("-q") // quiet mode
+        .arg(test_file.path())
+        .assert()
+        .success()
+        .stdout(test_data)
+        .stderr(""); // Should have no stderr output in quiet mode
+}
+
+#[test]
+fn test_quiet_mode_with_size() {
+    let test_data = "Quiet mode with size\n";
+
+    pv_cmd()
+        .arg("-q") // quiet mode
+        .arg("-s")
+        .arg("100") // size
+        .write_stdin(test_data)
+        .assert()
+        .success()
+        .stdout(test_data)
+        .stderr(""); // Should have no stderr output in quiet mode
+}
+
+#[test]
+fn test_quiet_mode_overrides_other_options() {
+    let test_data = "Quiet mode should override all display options\n";
+
+    pv_cmd()
+        .arg("-q") // quiet mode
+        .arg("-t") // timer (should be ignored)
+        .arg("-b") // bytes (should be ignored)
+        .arg("-r") // rate (should be ignored)
+        .arg("-e") // eta (should be ignored)
+        .arg("-N")
+        .arg("test") // name (should be ignored)
+        .write_stdin(test_data)
+        .assert()
+        .success()
+        .stdout(test_data)
+        .stderr(""); // Should have no stderr output in quiet mode
+}
+
+#[test]
+fn test_quiet_mode_suppresses_numeric_output() {
+    let test_data = "Quiet mode should suppress numeric output\n";
+
+    pv_cmd()
+        .arg("-q") // quiet mode
+        .arg("-n") // numeric mode (should be suppressed by quiet)
+        .write_stdin(test_data)
+        .assert()
+        .success()
+        .stdout(test_data)
+        .stderr(""); // Should have no stderr output even with -n
+}
