@@ -25,7 +25,7 @@ fn parse_rate_limit(s: &str) -> Result<u64, String> {
 
     let base_rate: u64 = number_part
         .parse()
-        .map_err(|_| format!("Invalid number: {}", number_part))?;
+        .map_err(|_| format!("Invalid number: {number_part}"))?;
 
     let multiplier = match suffix {
         '\0' => 1,
@@ -33,7 +33,7 @@ fn parse_rate_limit(s: &str) -> Result<u64, String> {
         'm' => 1024 * 1024,
         'g' => 1024 * 1024 * 1024,
         't' => 1024_u64.pow(4),
-        _ => return Err(format!("Invalid suffix: {}. Use k, m, g, or t", suffix)),
+        _ => return Err(format!("Invalid suffix: {suffix}. Use k, m, g, or t")),
     };
 
     base_rate
@@ -580,7 +580,7 @@ impl PipeView {
             // Calculate how long we should have taken so far
             let elapsed = self.rate_limit_start.elapsed();
             let target_duration = std::time::Duration::from_secs_f64(
-                self.total_bytes_transferred as f64 / rate_limit as f64
+                self.total_bytes_transferred as f64 / rate_limit as f64,
             );
 
             // If we're ahead of schedule, sleep for the remaining time

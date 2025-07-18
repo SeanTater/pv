@@ -28,7 +28,7 @@ fn test_rate_limit_basic() {
     let start_time = Instant::now();
 
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "512"]) // 512 bytes per second
+    cmd.args(["-L", "512"]) // 512 bytes per second
         .write_stdin(test_data.clone())
         .assert()
         .success()
@@ -58,7 +58,7 @@ fn test_rate_limit_with_k_suffix() {
     let start_time = Instant::now();
 
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "1k"]) // 1 kilobyte per second
+    cmd.args(["-L", "1k"]) // 1 kilobyte per second
         .write_stdin(test_data.clone())
         .assert()
         .success()
@@ -85,7 +85,7 @@ fn test_rate_limit_with_m_suffix() {
     let test_data = create_test_data(512); // 512 bytes
 
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "1m"]) // 1 megabyte per second (should be very fast)
+    cmd.args(["-L", "1m"]) // 1 megabyte per second (should be very fast)
         .write_stdin(test_data.clone())
         .assert()
         .success()
@@ -102,7 +102,7 @@ fn test_rate_limit_with_file_input() {
 
     let expected_output = test_data.clone();
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "512", "-f"])
+    cmd.args(["-L", "512", "-f"])
         .arg(temp_file.path())
         .assert()
         .success()
@@ -125,7 +125,7 @@ fn test_rate_limit_line_mode() {
     let start_time = Instant::now();
 
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "5", "-l"]) // 5 lines per second
+    cmd.args(["-L", "5", "-l"]) // 5 lines per second
         .write_stdin(test_data)
         .assert()
         .success()
@@ -144,7 +144,7 @@ fn test_rate_limit_line_mode() {
 #[test]
 fn test_rate_limit_invalid_suffix() {
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "100x"]) // Invalid suffix
+    cmd.args(["-L", "100x"]) // Invalid suffix
         .write_stdin("test")
         .assert()
         .failure()
@@ -154,7 +154,7 @@ fn test_rate_limit_invalid_suffix() {
 #[test]
 fn test_rate_limit_invalid_number() {
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "not_a_number"])
+    cmd.args(["-L", "not_a_number"])
         .write_stdin("test")
         .assert()
         .failure()
@@ -164,7 +164,7 @@ fn test_rate_limit_invalid_number() {
 #[test]
 fn test_rate_limit_empty() {
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", ""])
+    cmd.args(["-L", ""])
         .write_stdin("test")
         .assert()
         .failure()
@@ -174,10 +174,7 @@ fn test_rate_limit_empty() {
 #[test]
 fn test_rate_limit_zero() {
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "0"])
-        .write_stdin("test")
-        .assert()
-        .success(); // Zero rate limit should work (no limiting)
+    cmd.args(["-L", "0"]).write_stdin("test").assert().success(); // Zero rate limit should work (no limiting)
 }
 
 #[test]
@@ -185,7 +182,7 @@ fn test_rate_limit_with_numeric_output() {
     let test_data = create_test_data(512);
 
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "256", "-n", "-b"]) // Rate limit with numeric output
+    cmd.args(["-L", "256", "-n", "-b"]) // Rate limit with numeric output
         .write_stdin(test_data.clone())
         .assert()
         .success()
@@ -199,7 +196,7 @@ fn test_rate_limit_very_high() {
     let test_data = create_test_data(100);
 
     let mut cmd = pv_cmd();
-    cmd.args(&["-L", "1g"]) // Very high rate limit (1GB/s)
+    cmd.args(["-L", "1g"]) // Very high rate limit (1GB/s)
         .write_stdin(test_data.clone())
         .assert()
         .success()

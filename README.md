@@ -182,3 +182,47 @@ cargo build --release
 
 - Rust 1.70+ (stable, beta, or nightly)
 - Cargo package manager
+
+## Development
+
+### Setting up Pre-commit Hooks
+
+This project uses pre-commit hooks to automatically format code and run linting checks before commits. This prevents formatting-related CI failures.
+
+**Option 1: Automatic Git Hook (Recommended)**
+The repository includes a Git pre-commit hook that will automatically run `cargo fmt` and `cargo clippy`:
+
+```bash
+# Hook is already set up - just make sure it's executable
+chmod +x .git/hooks/pre-commit
+```
+
+**Option 2: Pre-commit Framework**
+For more advanced setups, install the `pre-commit` framework:
+
+```bash
+# Install pre-commit (requires Python)
+uv tool install pre-commit
+
+# Install the git hook scripts
+pre-commit install
+
+# Optionally run against all files
+pre-commit run --all-files
+```
+
+### Manual Commands
+
+```bash
+# Format code
+cargo fmt
+
+# Check linting
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Run tests
+cargo test
+
+# Check formatting without fixing
+cargo fmt --all -- --check
+```
