@@ -102,7 +102,7 @@ fn test_rate_limit_with_file_input() {
 
     let expected_output = test_data.clone();
     let mut cmd = pv_cmd();
-    cmd.args(["-L", "512", "-f"])
+    cmd.args(["-L", "512"])
         .arg(temp_file.path())
         .assert()
         .success()

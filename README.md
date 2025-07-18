@@ -55,10 +55,10 @@ This Rust implementation covers the core functionality of the original `pv` util
 | Bar style (`-u`) | ✅ | 🔴 Not Implemented |
 | Extra display (`-x`) | ✅ | 🔴 Not Implemented |
 | Transfer stats (`-v`) | ✅ | 🔴 Not Implemented |
-| Force output (`-f`) | ✅ | 🔴 Not Implemented |
+| Force output (`-f`) | ✅ | ✅ Implemented |
 | Cursor positioning (`-c`) | ✅ | 🔴 Not Implemented |
 | **Data Transfer Features** |
-| Output to file (`-o`) | ✅ | 🔴 Not Implemented |
+| Output to file (`-o`) | ✅ | ✅ Implemented |
 | Rate limiting (`-L`) | ✅ | ✅ Implemented |
 | Buffer size control (`-B`) | ✅ | 🔴 Not Implemented |
 | No splice (`-C`) | ✅ | 🔴 Not Implemented |
@@ -80,8 +80,8 @@ This Rust implementation covers the core functionality of the original `pv` util
 - [x] Custom format strings (`-F`) - Essential for scripting and integration
 - [x] Numeric output (`-n`) - Important for automation
 - [x] Rate limiting (`-L`) - Common use case for bandwidth control  
-- [ ] Output to file (`-o`) - Basic I/O redirection
-- [ ] Force output (`-f`) - Important for non-terminal usage
+- [x] Output to file (`-o`) - Basic I/O redirection
+- [x] Force output (`-f`) - Important for non-terminal usage
 - [ ] Quiet mode (`-q`) - Essential for silent operation
 
 **Medium Priority (Enhanced Display):**
@@ -100,7 +100,7 @@ This Rust implementation covers the core functionality of the original `pv` util
 
 ### Summary
 
-The current implementation covers exactly **52%** of the standard `pv` features (24 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings, numeric output, and rate limiting, but lacks many advanced features that make the original `pv` versatile for different use cases.
+The current implementation covers exactly **57%** of the standard `pv` features (26 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings, numeric output, rate limiting, output to file, and force output, but lacks many advanced features that make the original `pv` versatile for different use cases.
 
 ### Out of Scope Features
 

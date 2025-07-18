@@ -252,7 +252,6 @@ fn test_format_with_file_input() {
         .arg("File: %{name}%{bytes}")
         .arg("-N")
         .arg("TestFile")
-        .arg("-f")
         .arg(test_file.path())
         .assert()
         .success()

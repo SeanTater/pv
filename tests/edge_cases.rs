@@ -206,11 +206,7 @@ fn test_special_characters_in_name() {
 
 #[test]
 fn test_nonexistent_file() {
-    pv_cmd()
-        .arg("-f")
-        .arg("/nonexistent/file/path")
-        .assert()
-        .failure(); // Should fail with non-existent file
+    pv_cmd().arg("/nonexistent/file/path").assert().failure(); // Should fail with non-existent file
 }
 
 #[test]

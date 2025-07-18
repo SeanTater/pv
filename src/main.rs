@@ -1,5 +1,5 @@
 use clap::Parser;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs::File;
 use std::io;
 use std::io::{ErrorKind, Read, Write};
@@ -79,8 +79,7 @@ struct PipeViewConfig {
     /// Skip read errors in output
     #[arg(short = 'O')]
     skip_output_errors: bool,
-    /// Input filenames. Use -, /dev/stdin, or nothing, to use stdin
-    #[arg(short = 'f')]
+    /// Input filenames as positional arguments. Use -, /dev/stdin, or leave empty to use stdin
     input_filenames: Vec<String>,
     /// Show message every N seconds instead of once per block (useful for high throughput streams)
     #[arg(short = 'i')]
@@ -112,6 +111,12 @@ struct PipeViewConfig {
     /// Rate limit data transfer to RATE bytes per second (k/m/g/t suffixes allowed)
     #[arg(short = 'L', long = "rate-limit", value_parser = parse_rate_limit)]
     rate_limit: Option<u64>,
+    /// Output to file instead of stdout
+    #[arg(short = 'o', long = "output")]
+    output_file: Option<String>,
+    /// Force output (show progress even if not connected to terminal)
+    #[arg(short = 'f', long = "force")]
+    force_output: bool,
 }
 
 fn main() {
@@ -153,9 +158,21 @@ fn main() {
             })
     };
 
+    let sink: Box<dyn Write> = if let Some(ref output_path) = matches.output_file {
+        // Output to file
+        Box::new(io::BufWriter::new(
+            File::create(output_path).unwrap_or_else(|e| {
+                panic!("Failed to create output file '{}': {}", output_path, e)
+            }),
+        ))
+    } else {
+        // Output to stdout
+        Box::new(io::BufWriter::new(io::stdout()))
+    };
+
     PipeView {
-        source: sources,                                  // Source
-        sink: Box::new(io::BufWriter::new(io::stdout())), // Sink
+        source: sources, // Source
+        sink,            // Sink
         progress: PipeView::progress_from_options(&matches),
         line_mode: if matches.line_mode {
             LineMode::Line(if matches.null { 0 } else { 10 }) // default to unix newline
@@ -377,6 +394,10 @@ impl PipeView {
             if let Some(sec) = conf.interval {
                 progress.enable_steady_tick(Duration::from_secs_f64(sec));
             }
+            // Force output to stderr even when not connected to terminal
+            if conf.force_output {
+                progress.set_draw_target(ProgressDrawTarget::stderr());
+            }
             return progress;
         }
         let mut style = match conf.size {
@@ -453,6 +474,12 @@ impl PipeView {
             progress.enable_steady_tick(Duration::from_secs_f64(sec));
         }
         progress.set_style(style);
+
+        // Force output to stderr even when not connected to terminal
+        if conf.force_output {
+            progress.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+        }
+
         progress
     }
 
