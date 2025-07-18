@@ -79,7 +79,7 @@ struct PipeViewConfig {
     /// Skip read errors in output
     #[arg(short = 'O')]
     skip_output_errors: bool,
-    /// Input filenames. Use -, /dev/stdin, or nothing, to use stdin
+    /// Input filenames as positional arguments. Use -, /dev/stdin, or leave empty to use stdin
     input_filenames: Vec<String>,
     /// Show message every N seconds instead of once per block (useful for high throughput streams)
     #[arg(short = 'i')]
