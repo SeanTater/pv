@@ -384,14 +384,19 @@ struct NumericConfig {
 }
 
 impl PipeView {
+    /// Create a basic progress bar based on size configuration
+    fn create_progress_bar(size: Option<u64>) -> ProgressBar {
+        match size {
+            Some(x) => ProgressBar::new(x),
+            None => ProgressBar::new_spinner(),
+        }
+    }
+
     /// Set up the progress bar from the parsed CLI options
     fn progress_from_options(conf: &PipeViewConfig) -> ProgressBar {
         // For quiet mode, create a completely hidden progress bar
         if conf.quiet {
-            let progress = match conf.size {
-                Some(x) => ProgressBar::new(x),
-                None => ProgressBar::new_spinner(),
-            };
+            let progress = Self::create_progress_bar(conf.size);
             progress.set_style(ProgressStyle::default_bar().template("").unwrap());
             progress.set_draw_target(ProgressDrawTarget::hidden());
             return progress;
@@ -399,10 +404,7 @@ impl PipeView {
 
         // For numeric mode, create a hidden progress bar
         if conf.numeric {
-            let progress = match conf.size {
-                Some(x) => ProgressBar::new(x),
-                None => ProgressBar::new_spinner(),
-            };
+            let progress = Self::create_progress_bar(conf.size);
             progress.set_style(ProgressStyle::default_bar().template("").unwrap());
             if let Some(sec) = conf.interval {
                 progress.enable_steady_tick(Duration::from_secs_f64(sec));
@@ -477,10 +479,7 @@ impl PipeView {
             }
         }
 
-        let progress = match conf.size {
-            Some(x) => ProgressBar::new(x),
-            None => ProgressBar::new_spinner(),
-        };
+        let progress = Self::create_progress_bar(conf.size);
 
         // Optionally enable steady tick
         if let Some(sec) = conf.interval {
