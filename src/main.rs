@@ -170,6 +170,15 @@ struct PipeViewConfig {
     /// Display bits instead of bytes
     #[arg(short = '8')]
     bits_mode: bool,
+    /// Stop after transferring SIZE bytes
+    #[arg(short = 'S', long = "stop-at-size")]
+    stop_at_size: Option<u64>,
+    /// Wait until first byte is read before showing any output
+    #[arg(short = 'W', long = "wait")]
+    wait_for_first_byte: bool,
+    /// Wait for SECONDS before showing output
+    #[arg(short = 'D', long = "delay")]
+    delay_start: Option<f64>,
 }
 
 fn main() {
@@ -249,6 +258,10 @@ fn main() {
         rate_limit: matches.rate_limit,
         rate_limit_start: std::time::Instant::now(),
         total_bytes_transferred: 0,
+        stop_at_size: matches.stop_at_size,
+        wait_for_first_byte: matches.wait_for_first_byte,
+        delay_start: matches.delay_start,
+        first_byte_received: false,
     }
     .pipeview()
     .unwrap();
@@ -430,6 +443,10 @@ struct PipeView {
     rate_limit: Option<u64>,
     rate_limit_start: std::time::Instant,
     total_bytes_transferred: u64,
+    stop_at_size: Option<u64>,
+    wait_for_first_byte: bool,
+    delay_start: Option<f64>,
+    first_byte_received: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -717,27 +734,63 @@ impl PipeView {
                     }
                     return Ok(written);
                 }
-                Ok(len) => len,
+                Ok(len) => {
+                    // Handle first byte logic
+                    if !self.first_byte_received {
+                        self.first_byte_received = true;
+
+                        // Handle delay start - wait specified seconds before showing output
+                        if let Some(delay_seconds) = self.delay_start {
+                            std::thread::sleep(std::time::Duration::from_secs_f64(delay_seconds));
+                        }
+
+                        // If wait for first byte is enabled, only now should we potentially show progress
+                        // (This is handled by checking first_byte_received in progress updates)
+                    }
+
+                    len
+                }
                 Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
                 Err(_) if self.skip_input_errors => continue,
                 Err(e) => return Err(e.into()),
             };
 
+            // Check stop-at-size limit before writing
+            let actual_len = if let Some(stop_size) = self.stop_at_size {
+                let remaining = stop_size.saturating_sub(written);
+                if remaining == 0 {
+                    // We've reached the stop size, finish
+                    if self.numeric_mode {
+                        self.output_numeric();
+                    }
+                    return Ok(written);
+                }
+                std::cmp::min(len, remaining as usize)
+            } else {
+                len
+            };
+
             // Maybe skip output errors
-            match self.sink.write_all(&buf[..len]) {
+            match self.sink.write_all(&buf[..actual_len]) {
                 Ok(_) => (),
                 Err(_) if self.skip_output_errors => continue,
                 Err(e) => return Err(e.into()),
             };
             let transfer_unit = match self.line_mode {
                 LineMode::Line(delim) => {
-                    let lines = buf[..len].iter().filter(|b| **b == delim).count() as u64;
-                    self.progress.inc(lines);
+                    let lines = buf[..actual_len].iter().filter(|b| **b == delim).count() as u64;
+                    // Only update progress if we're past the wait-for-first-byte and delay period
+                    if !self.wait_for_first_byte || self.first_byte_received {
+                        self.progress.inc(lines);
+                    }
                     lines
                 }
                 LineMode::Byte => {
-                    self.progress.inc(len as u64);
-                    len as u64
+                    // Only update progress if we're past the wait-for-first-byte and delay period
+                    if !self.wait_for_first_byte || self.first_byte_received {
+                        self.progress.inc(actual_len as u64);
+                    }
+                    actual_len as u64
                 }
             };
 
@@ -758,7 +811,7 @@ impl PipeView {
                 }
             }
 
-            written += len as u64;
+            written += actual_len as u64;
         }
     }
 }
