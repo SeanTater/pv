@@ -16,3 +16,7 @@ stderr*.txt
 # Flatpak build artifacts
 .flatpak-builder/
 flatpak-build/
+
+.chunkhound*
+.mcp.json
+

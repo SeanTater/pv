@@ -41,125 +41,61 @@ fn parse_rate_limit(s: &str) -> Result<u64, String> {
         .ok_or_else(|| "Rate limit too large".to_string())
 }
 
+fn format_units(value: u64, use_si_units: bool, bits_mode: bool) -> String {
+    let (amount, base_unit) = if bits_mode {
+        (value * 8, "bit")
+    } else {
+        (value, "B")
+    };
+
+    if amount == 0 {
+        return format!("0{base_unit}");
+    }
+
+    let (units, divisor): (&[&str], f64) = if use_si_units {
+        if bits_mode {
+            (&["bit", "kbit", "Mbit", "Gbit", "Tbit", "Pbit"][..], 1000.0)
+        } else {
+            (&["B", "kB", "MB", "GB", "TB", "PB"][..], 1000.0)
+        }
+    } else if bits_mode {
+        (
+            &["bit", "Kibit", "Mibit", "Gibit", "Tibit", "Pibit"][..],
+            1024.0,
+        )
+    } else {
+        (&["B", "KiB", "MiB", "GiB", "TiB", "PiB"][..], 1024.0)
+    };
+
+    let amount_f = amount as f64;
+    let magnitude = if use_si_units {
+        (amount_f.log10() / divisor.log10()).floor() as usize
+    } else {
+        (amount_f.log2() / divisor.log2()).floor() as usize
+    };
+    let magnitude = magnitude.min(units.len() - 1);
+
+    if magnitude == 0 {
+        format!("{amount}{}", units[0])
+    } else {
+        let scaled = amount_f / divisor.powi(magnitude as i32);
+        let precision = if scaled >= 100.0 {
+            0
+        } else if scaled >= 10.0 {
+            1
+        } else {
+            2
+        };
+        format!("{:.precision$}{}", scaled, units[magnitude])
+    }
+}
+
 fn format_size(bytes: u64, use_si_units: bool) -> String {
-    if use_si_units {
-        format_size_si(bytes)
-    } else {
-        format_size_binary(bytes)
-    }
-}
-
-fn format_size_si(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "kB", "MB", "GB", "TB", "PB"];
-    const DIVISOR: f64 = 1000.0;
-
-    if bytes == 0 {
-        return "0B".to_string();
-    }
-
-    let bytes_f = bytes as f64;
-    let magnitude = (bytes_f.log10() / DIVISOR.log10()).floor() as usize;
-    let magnitude = magnitude.min(UNITS.len() - 1);
-
-    if magnitude == 0 {
-        format!("{bytes}B")
-    } else {
-        let scaled = bytes_f / DIVISOR.powi(magnitude as i32);
-        if scaled >= 100.0 {
-            format!("{:.0}{}", scaled, UNITS[magnitude])
-        } else if scaled >= 10.0 {
-            format!("{:.1}{}", scaled, UNITS[magnitude])
-        } else {
-            format!("{:.2}{}", scaled, UNITS[magnitude])
-        }
-    }
-}
-
-fn format_size_binary(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
-    const DIVISOR: f64 = 1024.0;
-
-    if bytes == 0 {
-        return "0B".to_string();
-    }
-
-    let bytes_f = bytes as f64;
-    let magnitude = (bytes_f.log2() / DIVISOR.log2()).floor() as usize;
-    let magnitude = magnitude.min(UNITS.len() - 1);
-
-    if magnitude == 0 {
-        format!("{bytes}B")
-    } else {
-        let scaled = bytes_f / DIVISOR.powi(magnitude as i32);
-        if scaled >= 100.0 {
-            format!("{:.0}{}", scaled, UNITS[magnitude])
-        } else if scaled >= 10.0 {
-            format!("{:.1}{}", scaled, UNITS[magnitude])
-        } else {
-            format!("{:.2}{}", scaled, UNITS[magnitude])
-        }
-    }
+    format_units(bytes, use_si_units, false)
 }
 
 fn format_bits(bytes: u64, use_si_units: bool) -> String {
-    let bits = bytes * 8;
-    if use_si_units {
-        format_bits_si(bits)
-    } else {
-        format_bits_binary(bits)
-    }
-}
-
-fn format_bits_si(bits: u64) -> String {
-    const UNITS: &[&str] = &["bit", "kbit", "Mbit", "Gbit", "Tbit", "Pbit"];
-    const DIVISOR: f64 = 1000.0;
-
-    if bits == 0 {
-        return "0bit".to_string();
-    }
-
-    let bits_f = bits as f64;
-    let magnitude = (bits_f.log10() / DIVISOR.log10()).floor() as usize;
-    let magnitude = magnitude.min(UNITS.len() - 1);
-
-    if magnitude == 0 {
-        format!("{bits}bit")
-    } else {
-        let scaled = bits_f / DIVISOR.powi(magnitude as i32);
-        if scaled >= 100.0 {
-            format!("{:.0}{}", scaled, UNITS[magnitude])
-        } else if scaled >= 10.0 {
-            format!("{:.1}{}", scaled, UNITS[magnitude])
-        } else {
-            format!("{:.2}{}", scaled, UNITS[magnitude])
-        }
-    }
-}
-
-fn format_bits_binary(bits: u64) -> String {
-    const UNITS: &[&str] = &["bit", "Kibit", "Mibit", "Gibit", "Tibit", "Pibit"];
-    const DIVISOR: f64 = 1024.0;
-
-    if bits == 0 {
-        return "0bit".to_string();
-    }
-
-    let bits_f = bits as f64;
-    let magnitude = (bits_f.log2() / DIVISOR.log2()).floor() as usize;
-    let magnitude = magnitude.min(UNITS.len() - 1);
-
-    if magnitude == 0 {
-        format!("{bits}bit")
-    } else {
-        let scaled = bits_f / DIVISOR.powi(magnitude as i32);
-        if scaled >= 100.0 {
-            format!("{:.0}{}", scaled, UNITS[magnitude])
-        } else if scaled >= 10.0 {
-            format!("{:.1}{}", scaled, UNITS[magnitude])
-        } else {
-            format!("{:.2}{}", scaled, UNITS[magnitude])
-        }
-    }
+    format_units(bytes, use_si_units, true)
 }
 
 #[derive(Parser, Debug)]
