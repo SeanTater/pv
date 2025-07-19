@@ -76,6 +76,48 @@ check_dependencies() {
     success "All dependencies found"
 }
 
+# Get CPU information cross-platform
+get_cpu_info() {
+    case "$(uname -s)" in
+        Linux)
+            grep 'model name' /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | xargs || echo "Unknown CPU"
+            ;;
+        Darwin)
+            sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Unknown CPU"
+            ;;
+        CYGWIN*|MINGW*|MSYS*)
+            wmic cpu get name /value 2>/dev/null | grep "Name=" | cut -d= -f2 || echo "Unknown CPU"
+            ;;
+        *)
+            echo "Unknown CPU"
+            ;;
+    esac
+}
+
+# Get memory information cross-platform
+get_memory_info() {
+    case "$(uname -s)" in
+        Linux)
+            free -h 2>/dev/null | grep 'Mem:' | awk '{print $2}' || echo "Unknown Memory"
+            ;;
+        Darwin)
+            local mem_bytes
+            mem_bytes=$(sysctl -n hw.memsize 2>/dev/null)
+            if [[ -n "$mem_bytes" ]]; then
+                echo "$((mem_bytes / 1024 / 1024 / 1024))GB"
+            else
+                echo "Unknown Memory"
+            fi
+            ;;
+        CYGWIN*|MINGW*|MSYS*)
+            wmic computersystem get TotalPhysicalMemory /value 2>/dev/null | grep "TotalPhysicalMemory=" | cut -d= -f2 | awk '{printf "%.1fGB", $1/1024/1024/1024}' || echo "Unknown Memory"
+            ;;
+        *)
+            echo "Unknown Memory"
+            ;;
+    esac
+}
+
 # Get version information
 get_versions() {
     log "Getting version information..."
@@ -84,8 +126,8 @@ get_versions() {
     echo "" >> "$OUTPUT_FILE"
     echo "- **Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$OUTPUT_FILE"
     echo "- **System**: $(uname -a)" >> "$OUTPUT_FILE"
-    echo "- **CPU**: $(grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)" >> "$OUTPUT_FILE"
-    echo "- **Memory**: $(free -h | grep 'Mem:' | awk '{print $2}')" >> "$OUTPUT_FILE"
+    echo "- **CPU**: $(get_cpu_info)" >> "$OUTPUT_FILE"
+    echo "- **Memory**: $(get_memory_info)" >> "$OUTPUT_FILE"
     echo "- **Rust pv**: $("$RUST_PV" --version 2>/dev/null || echo "Unable to determine version")" >> "$OUTPUT_FILE"
     echo "- **System pv**: $("$SYSTEM_PV" --version 2>&1 | head -1 || echo "Unable to determine version")" >> "$OUTPUT_FILE"
     echo "" >> "$OUTPUT_FILE"
@@ -100,8 +142,14 @@ generate_test_data() {
     log "Generating test data: $size_name ($size_bytes bytes)"
     
     # Use /dev/urandom for realistic data that doesn't compress well
-    dd if=/dev/urandom of="$file_path" bs=1M count=$((size_bytes / 1048576)) status=none 2>/dev/null || \
-    dd if=/dev/urandom of="$file_path" bs=1024 count=$((size_bytes / 1024)) status=none 2>/dev/null
+    dd if=/dev/urandom of="$file_path" bs=1M count=$((size_bytes / 1048576)) status=none 2>/dev/null
+    
+    # Validate file size
+    actual_size=$(stat -c%s "$file_path" 2>/dev/null || wc -c < "$file_path")
+    if [[ "$actual_size" -ne "$size_bytes" ]]; then
+        error "Generated file size ($actual_size bytes) does not match expected size ($size_bytes bytes)"
+        exit 1
+    fi
     
     echo "$file_path"
 }
@@ -143,11 +191,14 @@ run_benchmark() {
         
         # Extract winner information
         local winner
-        winner=$(grep -E "(Rust pv|System pv)" "$TEMP_DIR/bench_${test_name// /_}.md" | head -1 | awk '{print $2 " " $3}')
+        winner=$(grep -E "(Rust pv|System pv)" "$TEMP_DIR/bench_${test_name// /_}.md" | head -1 | grep -oE "(Rust pv|System pv)")
         if [[ "$winner" == "Rust pv" ]]; then
             echo "🏆 **Winner**: Rust implementation" >> "$OUTPUT_FILE"
-        else
+        elif [[ "$winner" == "System pv" ]]; then
             echo "🏆 **Winner**: System pv" >> "$OUTPUT_FILE"
+        else
+            warn "Unable to determine winner for $test_name"
+            echo "❓ **Winner**: Unable to determine" >> "$OUTPUT_FILE"
         fi
     fi
     
@@ -201,9 +252,7 @@ run_benchmark_suite() {
     # Test 4: Line counting mode
     log "Generating line-based test data..."
     local line_file="$TEMP_DIR/lines.txt"
-    for i in {1..100000}; do
-        echo "This is line number $i with some content to make it realistic" >> "$line_file"
-    done
+    seq 1 100000 | awk '{print "This is line number " $1 " with some content to make it realistic"}' > "$line_file"
     
     run_benchmark \
         "Line Counting Mode" \
