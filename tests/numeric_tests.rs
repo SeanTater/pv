@@ -108,7 +108,9 @@ fn test_numeric_with_all_flags() {
         .assert()
         .success()
         .stdout(test_data)
-        .stderr(predicate::str::is_match(r"^\d+\.\d+ \d+ \d+").unwrap()); // "time bytes rate"
+        .stderr(
+            predicate::str::is_match(r"^\d+\.\d+ \d+[A-Za-z]+ \d+(?:\.\d+)?[A-Za-z]+/s").unwrap(),
+        ); // "time bytes rate" with units
 }
 
 #[test]

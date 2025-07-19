@@ -41,6 +41,53 @@ fn parse_rate_limit(s: &str) -> Result<u64, String> {
         .ok_or_else(|| "Rate limit too large".to_string())
 }
 
+fn format_units(value: u64, use_si_units: bool, bits_mode: bool) -> String {
+    let (amount, base_unit) = if bits_mode {
+        (value * 8, "bit")
+    } else {
+        (value, "B")
+    };
+
+    if amount == 0 {
+        return format!("0{base_unit}");
+    }
+
+    let (units, divisor) = match (use_si_units, bits_mode) {
+        (true, true) => (
+            &["bit", "kbit", "Mbit", "Gbit", "Tbit", "Pbit"][..],
+            1000.0f64,
+        ),
+        (true, false) => (&["B", "kB", "MB", "GB", "TB", "PB"][..], 1000.0f64),
+        (false, true) => (
+            &["bit", "Kibit", "Mibit", "Gibit", "Tibit", "Pibit"][..],
+            1024.0f64,
+        ),
+        (false, false) => (&["B", "KiB", "MiB", "GiB", "TiB", "PiB"][..], 1024.0f64),
+    };
+
+    let amount_f = amount as f64;
+    let magnitude = if use_si_units {
+        (amount_f.log10() / divisor.log10()).floor() as usize
+    } else {
+        (amount_f.log2() / divisor.log2()).floor() as usize
+    };
+    let magnitude = magnitude.min(units.len() - 1);
+
+    if magnitude == 0 {
+        format!("{amount}{}", units[0])
+    } else {
+        let scaled = amount_f / divisor.powi(magnitude as i32);
+        let precision = if scaled >= 100.0 {
+            0
+        } else if scaled >= 10.0 {
+            1
+        } else {
+            2
+        };
+        format!("{:.precision$}{}", scaled, units[magnitude])
+    }
+}
+
 #[derive(Parser, Debug)]
 struct PipeViewConfig {
     /// Set estimated data size to SIZE bytes
@@ -117,6 +164,12 @@ struct PipeViewConfig {
     /// Force output (show progress even if not connected to terminal)
     #[arg(short = 'f', long = "force")]
     force_output: bool,
+    /// Use SI units (1000-based) instead of binary units (1024-based)
+    #[arg(short = 'k')]
+    si_units: bool,
+    /// Display bits instead of bytes
+    #[arg(short = '8')]
+    bits_mode: bool,
 }
 
 fn main() {
@@ -189,6 +242,8 @@ fn main() {
             show_rate: matches.rate || matches.average_rate,
             format_string: matches.format.clone(),
         },
+        si_units: matches.si_units,
+        bits_mode: matches.bits_mode,
         last_numeric_output: std::time::Instant::now(),
         numeric_output_count: 0,
         rate_limit: matches.rate_limit,
@@ -368,6 +423,8 @@ struct PipeView {
     numeric_mode: bool,
     quiet_mode: bool,
     numeric_config: NumericConfig,
+    si_units: bool,
+    bits_mode: bool,
     last_numeric_output: std::time::Instant,
     numeric_output_count: u64,
     rate_limit: Option<u64>,
@@ -502,12 +559,18 @@ impl PipeView {
     fn format_token_to_numeric_value(&self, token: &FormatToken) -> Option<String> {
         match token {
             FormatToken::Timer => Some(format!("{:.1}", self.progress.elapsed().as_secs_f64())),
-            FormatToken::Bytes => Some(self.progress.position().to_string()),
+            FormatToken::Bytes => {
+                let bytes = self.progress.position();
+                Some(format_units(bytes, self.si_units, self.bits_mode))
+            }
             FormatToken::Rate | FormatToken::AverageRate => {
                 let elapsed = self.progress.elapsed().as_secs_f64();
                 if elapsed > 0.0 {
                     let rate = (self.progress.position() as f64 / elapsed) as u64;
-                    Some(rate.to_string())
+                    Some(format!(
+                        "{}/s",
+                        format_units(rate, self.si_units, self.bits_mode)
+                    ))
                 } else {
                     Some("0".to_string())
                 }
@@ -571,14 +634,18 @@ impl PipeView {
             }
 
             if self.numeric_config.show_bytes {
-                parts.push(self.progress.position().to_string());
+                let bytes = self.progress.position();
+                parts.push(format_units(bytes, self.si_units, self.bits_mode));
             }
 
             if self.numeric_config.show_rate {
                 let elapsed = self.progress.elapsed().as_secs_f64();
                 if elapsed > 0.0 {
                     let rate = (self.progress.position() as f64 / elapsed) as u64;
-                    parts.push(rate.to_string());
+                    parts.push(format!(
+                        "{}/s",
+                        format_units(rate, self.si_units, self.bits_mode)
+                    ));
                 } else {
                     parts.push("0".to_string());
                 }
