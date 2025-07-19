@@ -41,6 +41,127 @@ fn parse_rate_limit(s: &str) -> Result<u64, String> {
         .ok_or_else(|| "Rate limit too large".to_string())
 }
 
+fn format_size(bytes: u64, use_si_units: bool) -> String {
+    if use_si_units {
+        format_size_si(bytes)
+    } else {
+        format_size_binary(bytes)
+    }
+}
+
+fn format_size_si(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "kB", "MB", "GB", "TB", "PB"];
+    const DIVISOR: f64 = 1000.0;
+
+    if bytes == 0 {
+        return "0B".to_string();
+    }
+
+    let bytes_f = bytes as f64;
+    let magnitude = (bytes_f.log10() / DIVISOR.log10()).floor() as usize;
+    let magnitude = magnitude.min(UNITS.len() - 1);
+
+    if magnitude == 0 {
+        format!("{bytes}B")
+    } else {
+        let scaled = bytes_f / DIVISOR.powi(magnitude as i32);
+        if scaled >= 100.0 {
+            format!("{:.0}{}", scaled, UNITS[magnitude])
+        } else if scaled >= 10.0 {
+            format!("{:.1}{}", scaled, UNITS[magnitude])
+        } else {
+            format!("{:.2}{}", scaled, UNITS[magnitude])
+        }
+    }
+}
+
+fn format_size_binary(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    const DIVISOR: f64 = 1024.0;
+
+    if bytes == 0 {
+        return "0B".to_string();
+    }
+
+    let bytes_f = bytes as f64;
+    let magnitude = (bytes_f.log2() / DIVISOR.log2()).floor() as usize;
+    let magnitude = magnitude.min(UNITS.len() - 1);
+
+    if magnitude == 0 {
+        format!("{bytes}B")
+    } else {
+        let scaled = bytes_f / DIVISOR.powi(magnitude as i32);
+        if scaled >= 100.0 {
+            format!("{:.0}{}", scaled, UNITS[magnitude])
+        } else if scaled >= 10.0 {
+            format!("{:.1}{}", scaled, UNITS[magnitude])
+        } else {
+            format!("{:.2}{}", scaled, UNITS[magnitude])
+        }
+    }
+}
+
+fn format_bits(bytes: u64, use_si_units: bool) -> String {
+    let bits = bytes * 8;
+    if use_si_units {
+        format_bits_si(bits)
+    } else {
+        format_bits_binary(bits)
+    }
+}
+
+fn format_bits_si(bits: u64) -> String {
+    const UNITS: &[&str] = &["bit", "kbit", "Mbit", "Gbit", "Tbit", "Pbit"];
+    const DIVISOR: f64 = 1000.0;
+
+    if bits == 0 {
+        return "0bit".to_string();
+    }
+
+    let bits_f = bits as f64;
+    let magnitude = (bits_f.log10() / DIVISOR.log10()).floor() as usize;
+    let magnitude = magnitude.min(UNITS.len() - 1);
+
+    if magnitude == 0 {
+        format!("{bits}bit")
+    } else {
+        let scaled = bits_f / DIVISOR.powi(magnitude as i32);
+        if scaled >= 100.0 {
+            format!("{:.0}{}", scaled, UNITS[magnitude])
+        } else if scaled >= 10.0 {
+            format!("{:.1}{}", scaled, UNITS[magnitude])
+        } else {
+            format!("{:.2}{}", scaled, UNITS[magnitude])
+        }
+    }
+}
+
+fn format_bits_binary(bits: u64) -> String {
+    const UNITS: &[&str] = &["bit", "Kibit", "Mibit", "Gibit", "Tibit", "Pibit"];
+    const DIVISOR: f64 = 1024.0;
+
+    if bits == 0 {
+        return "0bit".to_string();
+    }
+
+    let bits_f = bits as f64;
+    let magnitude = (bits_f.log2() / DIVISOR.log2()).floor() as usize;
+    let magnitude = magnitude.min(UNITS.len() - 1);
+
+    if magnitude == 0 {
+        format!("{bits}bit")
+    } else {
+        let scaled = bits_f / DIVISOR.powi(magnitude as i32);
+        if scaled >= 100.0 {
+            format!("{:.0}{}", scaled, UNITS[magnitude])
+        } else if scaled >= 10.0 {
+            format!("{:.1}{}", scaled, UNITS[magnitude])
+        } else {
+            format!("{:.2}{}", scaled, UNITS[magnitude])
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 struct PipeViewConfig {
     /// Set estimated data size to SIZE bytes
@@ -117,6 +238,12 @@ struct PipeViewConfig {
     /// Force output (show progress even if not connected to terminal)
     #[arg(short = 'f', long = "force")]
     force_output: bool,
+    /// Use SI units (1000-based) instead of binary units (1024-based)
+    #[arg(short = 'k')]
+    si_units: bool,
+    /// Display bits instead of bytes
+    #[arg(short = '8')]
+    bits_mode: bool,
 }
 
 fn main() {
@@ -189,6 +316,8 @@ fn main() {
             show_rate: matches.rate || matches.average_rate,
             format_string: matches.format.clone(),
         },
+        si_units: matches.si_units,
+        bits_mode: matches.bits_mode,
         last_numeric_output: std::time::Instant::now(),
         numeric_output_count: 0,
         rate_limit: matches.rate_limit,
@@ -368,6 +497,8 @@ struct PipeView {
     numeric_mode: bool,
     quiet_mode: bool,
     numeric_config: NumericConfig,
+    si_units: bool,
+    bits_mode: bool,
     last_numeric_output: std::time::Instant,
     numeric_output_count: u64,
     rate_limit: Option<u64>,
@@ -502,12 +633,23 @@ impl PipeView {
     fn format_token_to_numeric_value(&self, token: &FormatToken) -> Option<String> {
         match token {
             FormatToken::Timer => Some(format!("{:.1}", self.progress.elapsed().as_secs_f64())),
-            FormatToken::Bytes => Some(self.progress.position().to_string()),
+            FormatToken::Bytes => {
+                let bytes = self.progress.position();
+                if self.bits_mode {
+                    Some(format_bits(bytes, self.si_units))
+                } else {
+                    Some(format_size(bytes, self.si_units))
+                }
+            }
             FormatToken::Rate | FormatToken::AverageRate => {
                 let elapsed = self.progress.elapsed().as_secs_f64();
                 if elapsed > 0.0 {
                     let rate = (self.progress.position() as f64 / elapsed) as u64;
-                    Some(rate.to_string())
+                    if self.bits_mode {
+                        Some(format!("{}/s", format_bits(rate, self.si_units)))
+                    } else {
+                        Some(format!("{}/s", format_size(rate, self.si_units)))
+                    }
                 } else {
                     Some("0".to_string())
                 }
@@ -571,14 +713,23 @@ impl PipeView {
             }
 
             if self.numeric_config.show_bytes {
-                parts.push(self.progress.position().to_string());
+                let bytes = self.progress.position();
+                if self.bits_mode {
+                    parts.push(format_bits(bytes, self.si_units));
+                } else {
+                    parts.push(format_size(bytes, self.si_units));
+                }
             }
 
             if self.numeric_config.show_rate {
                 let elapsed = self.progress.elapsed().as_secs_f64();
                 if elapsed > 0.0 {
                     let rate = (self.progress.position() as f64 / elapsed) as u64;
-                    parts.push(rate.to_string());
+                    if self.bits_mode {
+                        parts.push(format!("{}/s", format_bits(rate, self.si_units)));
+                    } else {
+                        parts.push(format!("{}/s", format_size(rate, self.si_units)));
+                    }
                 } else {
                     parts.push("0".to_string());
                 }
