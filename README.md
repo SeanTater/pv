@@ -18,6 +18,65 @@ docker save excelsior | pv | ssh me@devbox.company.com "docker load"
 pv gigantic-file | gunzip | gawk '/size/ { x += $4 } END {print x}'
 ```
 
+## Installation
+
+### Pre-built Binaries (Recommended)
+
+Download pre-built binaries for your platform from the [releases page](https://github.com/SeanTater/pv/releases):
+
+#### Linux (x86_64, static)
+```bash
+curl -L -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-linux-x86_64-binary
+chmod +x pv
+sudo mv pv /usr/local/bin/
+```
+
+#### Windows (x86_64)
+Download [`pv-windows-x86_64.exe`](https://github.com/SeanTater/pv/releases/latest) and rename to `pv.exe`, then add to your PATH.
+
+#### macOS (Intel)
+```bash
+curl -L -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-macos-x86_64-binary
+chmod +x pv
+sudo mv pv /usr/local/bin/
+```
+
+#### macOS (Apple Silicon)
+```bash
+curl -L -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-macos-arm64-binary
+chmod +x pv
+sudo mv pv /usr/local/bin/
+```
+
+### Package Managers
+
+#### Flatpak (Linux)
+```bash
+curl -L -o pv.flatpak https://github.com/SeanTater/pv/releases/latest/download/pv.flatpak
+flatpak install pv.flatpak
+```
+
+#### From crates.io
+```bash
+cargo install pv
+```
+
+### From Source
+```bash
+# Install from GitHub
+cargo install --git https://github.com/SeanTater/pv.git
+
+# Or clone and build locally
+git clone https://github.com/SeanTater/pv.git
+cd pv
+cargo build --release
+```
+
+### Verify Installation
+```bash
+pv --version
+```
+
 ## Feature Comparison with Standard pv
 
 This Rust implementation covers the core functionality of the original `pv` utility but is missing several advanced features. Here's a comparison:
@@ -135,50 +194,22 @@ Some features are currently **out of scope** for this implementation due to limi
 
 The focus remains on implementing high-value features that provide the most utility while working well within the `indicatif` framework.
 
-## Installation
+## Performance
 
-### Static Binary (Recommended)
+This Rust implementation provides competitive performance compared to the original `pv`. Based on benchmarks:
 
-Download the pre-built static binary for Linux x86_64 from the [releases page](https://github.com/SeanTater/pv/releases):
+### Throughput Performance
+- **Small files (1-10MB)**: System pv is ~10-18% faster
+- **Medium files (100MB)**: Performance is nearly equivalent (~5% difference)
+- **Large files (1GB)**: System pv is ~36% faster
+- **Custom format strings**: System pv is ~13% faster
 
-```bash
-# Download and install the latest release
-curl -L -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-linux-x86_64
-chmod +x pv
-sudo mv pv /usr/local/bin/
+### Performance Summary
+The Rust implementation shows good performance characteristics, especially for medium-sized data transfers. While the original `pv` maintains an edge in most scenarios due to decades of optimization, this implementation provides competitive throughput with the benefits of memory safety and modern Rust tooling.
 
-# Verify installation
-pv --version
-```
+See [benchmarks/](benchmarks/) for detailed performance analysis and instructions to run your own benchmarks.
 
-The static binary has no dependencies and works on any Linux x86_64 system.
-
-### Flatpak
-
-Download the latest Flatpak bundle from the [releases page](https://github.com/SeanTater/pv/releases) and install:
-
-```bash
-flatpak install pv.flatpak
-```
-
-Then run with:
-```bash
-flatpak run com.github.SeanTater.pv [options] [files...]
-```
-
-### From Source with Cargo
-
-```bash
-# Install from GitHub
-cargo install --git https://github.com/SeanTater/pv.git
-
-# Or clone and build locally
-git clone https://github.com/SeanTater/pv.git
-cd pv
-cargo build --release
-```
-
-### Build Requirements
+## Build Requirements
 
 - Rust 1.70+ (stable, beta, or nightly)
 - Cargo package manager
