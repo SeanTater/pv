@@ -92,13 +92,13 @@ jobs:
 
     - name: Strip binary (Linux/macOS)
       if: runner.os != 'Windows'
-      run: strip target/${{ matrix.target }}/release/pv*
+      run: strip target/${{ matrix.target }}/release/pv
 
     - name: Upload binary artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.name }}
-        path: target/${{ matrix.target }}/release/pv*
+        path: target/${{ matrix.target }}/release/pv${{ runner.os == 'Windows' && '.exe' || '' }}
         retention-days: 30
 
   flatpak:
