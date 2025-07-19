@@ -448,8 +448,6 @@ struct PipeView {
     wait_for_first_byte: bool,
     delay_start: Option<f64>,
     first_byte_received: bool,
-    #[allow(dead_code)]
-    start_time: std::time::Instant,
 }
 
 #[derive(Debug, Clone)]
