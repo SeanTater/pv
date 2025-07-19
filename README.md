@@ -46,10 +46,10 @@ This Rust implementation covers the core functionality of the original `pv` util
 | Numeric output (`-n`) | ✅ | ✅ Implemented |
 | Quiet mode (`-q`) | ✅ | ✅ Implemented |
 | **Display Options** |
-| Bits instead of bytes (`-8`) | ✅ | 🔴 Not Implemented |
-| SI units (`-k`) | ✅ | 🔴 Not Implemented |
-| Wait for first byte (`-W`) | ✅ | 🔴 Not Implemented |
-| Delay start (`-D`) | ✅ | 🔴 Not Implemented |
+| Bits instead of bytes (`-8`) | ✅ | ✅ Implemented |
+| SI units (`-k`) | ✅ | ✅ Implemented |
+| Wait for first byte (`-W`) | ✅ | ✅ Implemented |
+| Delay start (`-D`) | ✅ | ✅ Implemented |
 | Gauge mode (`-g`) | ✅ | 🔴 Not Implemented |
 | Average rate window (`-m`) | ✅ | 🔴 Not Implemented |
 | Bar style (`-u`) | ✅ | 🔴 Not Implemented |
@@ -64,7 +64,7 @@ This Rust implementation covers the core functionality of the original `pv` util
 | No splice (`-C`) | ✅ | 🔴 Not Implemented |
 | Skip output errors (`-O`) | ✅ | ✅ Implemented |
 | Error skip blocks (`-Z`) | ✅ | 🔴 Not Implemented |
-| Stop at size (`-S`) | ✅ | 🔴 Not Implemented |
+| Stop at size (`-S`) | ✅ | ✅ Implemented |
 | Sync writes (`-Y`) | ✅ | 🔴 Not Implemented |
 | Direct I/O (`-K`) | ✅ | 🔴 Not Implemented |
 | Discard output (`-X`) | ✅ | 🔴 Not Implemented |
@@ -85,11 +85,11 @@ This Rust implementation covers the core functionality of the original `pv` util
 - [x] Quiet mode (`-q`) - Essential for silent operation
 
 **Medium Priority (Enhanced Display):**
+- [x] SI units (`-k`) - Standards compliance
+- [x] Bits display (`-8`) - Network monitoring use case
 - [ ] Buffer percentage (`-T`) - Useful debugging feature
 - [ ] Transfer statistics (`-v`) - Nice summary feature
 - [ ] Gauge mode (`-g`) - Alternative progress display
-- [ ] SI units (`-k`) - Standards compliance
-- [ ] Bits display (`-8`) - Network monitoring use case
 
 **Lower Priority (Advanced Features):**
 - [ ] Watch file descriptor (`-d`) - Advanced monitoring feature
@@ -100,7 +100,7 @@ This Rust implementation covers the core functionality of the original `pv` util
 
 ### Summary
 
-The current implementation covers exactly **59%** of the standard `pv` features (27 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings, numeric output, rate limiting, output to file, and force output, but lacks many advanced features that make the original `pv` versatile for different use cases.
+The current implementation covers exactly **70%** of the standard `pv` features (32 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings, numeric output, rate limiting, output to file, force output, SI units, bits display, stop at size, wait for first byte, and delay start, but lacks many advanced features that make the original `pv` versatile for different use cases.
 
 ### Out of Scope Features
 
