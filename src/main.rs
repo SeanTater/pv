@@ -392,6 +392,19 @@ impl PipeView {
         }
     }
 
+    /// Apply common progress bar configuration (interval, force output)
+    fn configure_progress_bar(progress: &ProgressBar, conf: &PipeViewConfig) {
+        // Optionally enable steady tick
+        if let Some(sec) = conf.interval {
+            progress.enable_steady_tick(Duration::from_secs_f64(sec));
+        }
+
+        // Force output to stderr even when not connected to terminal
+        if conf.force_output {
+            progress.set_draw_target(ProgressDrawTarget::stderr());
+        }
+    }
+
     /// Set up the progress bar from the parsed CLI options
     fn progress_from_options(conf: &PipeViewConfig) -> ProgressBar {
         // For quiet mode, create a completely hidden progress bar
@@ -406,13 +419,7 @@ impl PipeView {
         if conf.numeric {
             let progress = Self::create_progress_bar(conf.size);
             progress.set_style(ProgressStyle::default_bar().template("").unwrap());
-            if let Some(sec) = conf.interval {
-                progress.enable_steady_tick(Duration::from_secs_f64(sec));
-            }
-            // Force output to stderr even when not connected to terminal
-            if conf.force_output {
-                progress.set_draw_target(ProgressDrawTarget::stderr());
-            }
+            Self::configure_progress_bar(&progress, conf);
             return progress;
         }
         let mut style = match conf.size {
@@ -480,17 +487,8 @@ impl PipeView {
         }
 
         let progress = Self::create_progress_bar(conf.size);
-
-        // Optionally enable steady tick
-        if let Some(sec) = conf.interval {
-            progress.enable_steady_tick(Duration::from_secs_f64(sec));
-        }
         progress.set_style(style);
-
-        // Force output to stderr even when not connected to terminal
-        if conf.force_output {
-            progress.set_draw_target(indicatif::ProgressDrawTarget::stderr());
-        }
+        Self::configure_progress_bar(&progress, conf);
 
         progress
     }
