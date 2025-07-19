@@ -262,7 +262,6 @@ fn main() {
         wait_for_first_byte: matches.wait_for_first_byte,
         delay_start: matches.delay_start,
         first_byte_received: false,
-        start_time: std::time::Instant::now(),
     }
     .pipeview()
     .unwrap();
