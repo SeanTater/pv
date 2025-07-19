@@ -52,19 +52,17 @@ fn format_units(value: u64, use_si_units: bool, bits_mode: bool) -> String {
         return format!("0{base_unit}");
     }
 
-    let (units, divisor): (&[&str], f64) = if use_si_units {
-        if bits_mode {
-            (&["bit", "kbit", "Mbit", "Gbit", "Tbit", "Pbit"][..], 1000.0)
-        } else {
-            (&["B", "kB", "MB", "GB", "TB", "PB"][..], 1000.0)
-        }
-    } else if bits_mode {
-        (
+    let (units, divisor) = match (use_si_units, bits_mode) {
+        (true, true) => (
+            &["bit", "kbit", "Mbit", "Gbit", "Tbit", "Pbit"][..],
+            1000.0f64,
+        ),
+        (true, false) => (&["B", "kB", "MB", "GB", "TB", "PB"][..], 1000.0f64),
+        (false, true) => (
             &["bit", "Kibit", "Mibit", "Gibit", "Tibit", "Pibit"][..],
-            1024.0,
-        )
-    } else {
-        (&["B", "KiB", "MiB", "GiB", "TiB", "PiB"][..], 1024.0)
+            1024.0f64,
+        ),
+        (false, false) => (&["B", "KiB", "MiB", "GiB", "TiB", "PiB"][..], 1024.0f64),
     };
 
     let amount_f = amount as f64;
@@ -88,14 +86,6 @@ fn format_units(value: u64, use_si_units: bool, bits_mode: bool) -> String {
         };
         format!("{:.precision$}{}", scaled, units[magnitude])
     }
-}
-
-fn format_size(bytes: u64, use_si_units: bool) -> String {
-    format_units(bytes, use_si_units, false)
-}
-
-fn format_bits(bytes: u64, use_si_units: bool) -> String {
-    format_units(bytes, use_si_units, true)
 }
 
 #[derive(Parser, Debug)]
@@ -571,21 +561,16 @@ impl PipeView {
             FormatToken::Timer => Some(format!("{:.1}", self.progress.elapsed().as_secs_f64())),
             FormatToken::Bytes => {
                 let bytes = self.progress.position();
-                if self.bits_mode {
-                    Some(format_bits(bytes, self.si_units))
-                } else {
-                    Some(format_size(bytes, self.si_units))
-                }
+                Some(format_units(bytes, self.si_units, self.bits_mode))
             }
             FormatToken::Rate | FormatToken::AverageRate => {
                 let elapsed = self.progress.elapsed().as_secs_f64();
                 if elapsed > 0.0 {
                     let rate = (self.progress.position() as f64 / elapsed) as u64;
-                    if self.bits_mode {
-                        Some(format!("{}/s", format_bits(rate, self.si_units)))
-                    } else {
-                        Some(format!("{}/s", format_size(rate, self.si_units)))
-                    }
+                    Some(format!(
+                        "{}/s",
+                        format_units(rate, self.si_units, self.bits_mode)
+                    ))
                 } else {
                     Some("0".to_string())
                 }
@@ -650,22 +635,17 @@ impl PipeView {
 
             if self.numeric_config.show_bytes {
                 let bytes = self.progress.position();
-                if self.bits_mode {
-                    parts.push(format_bits(bytes, self.si_units));
-                } else {
-                    parts.push(format_size(bytes, self.si_units));
-                }
+                parts.push(format_units(bytes, self.si_units, self.bits_mode));
             }
 
             if self.numeric_config.show_rate {
                 let elapsed = self.progress.elapsed().as_secs_f64();
                 if elapsed > 0.0 {
                     let rate = (self.progress.position() as f64 / elapsed) as u64;
-                    if self.bits_mode {
-                        parts.push(format!("{}/s", format_bits(rate, self.si_units)));
-                    } else {
-                        parts.push(format!("{}/s", format_size(rate, self.si_units)));
-                    }
+                    parts.push(format!(
+                        "{}/s",
+                        format_units(rate, self.si_units, self.bits_mode)
+                    ));
                 } else {
                     parts.push("0".to_string());
                 }
