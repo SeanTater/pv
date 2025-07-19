@@ -384,16 +384,19 @@ struct NumericConfig {
 }
 
 impl PipeView {
-    /// Create a basic progress bar based on size configuration
-    fn create_progress_bar(size: Option<u64>) -> ProgressBar {
-        match size {
+    /// Create and configure a progress bar with the given style
+    fn create_configured_progress_bar(
+        size: Option<u64>,
+        style: ProgressStyle,
+        conf: &PipeViewConfig,
+    ) -> ProgressBar {
+        let progress = match size {
             Some(x) => ProgressBar::new(x),
             None => ProgressBar::new_spinner(),
-        }
-    }
+        };
 
-    /// Apply common progress bar configuration (interval, force output)
-    fn configure_progress_bar(progress: &ProgressBar, conf: &PipeViewConfig) {
+        progress.set_style(style);
+
         // Optionally enable steady tick
         if let Some(sec) = conf.interval {
             progress.enable_steady_tick(Duration::from_secs_f64(sec));
@@ -403,24 +406,30 @@ impl PipeView {
         if conf.force_output {
             progress.set_draw_target(ProgressDrawTarget::stderr());
         }
+
+        progress
     }
 
     /// Set up the progress bar from the parsed CLI options
     fn progress_from_options(conf: &PipeViewConfig) -> ProgressBar {
         // For quiet mode, create a completely hidden progress bar
         if conf.quiet {
-            let progress = Self::create_progress_bar(conf.size);
-            progress.set_style(ProgressStyle::default_bar().template("").unwrap());
+            let progress = Self::create_configured_progress_bar(
+                conf.size,
+                ProgressStyle::default_bar().template("").unwrap(),
+                conf,
+            );
             progress.set_draw_target(ProgressDrawTarget::hidden());
             return progress;
         }
 
         // For numeric mode, create a hidden progress bar
         if conf.numeric {
-            let progress = Self::create_progress_bar(conf.size);
-            progress.set_style(ProgressStyle::default_bar().template("").unwrap());
-            Self::configure_progress_bar(&progress, conf);
-            return progress;
+            return Self::create_configured_progress_bar(
+                conf.size,
+                ProgressStyle::default_bar().template("").unwrap(),
+                conf,
+            );
         }
         let mut style = match conf.size {
             Some(_x) => ProgressStyle::default_bar(),
@@ -486,11 +495,7 @@ impl PipeView {
             }
         }
 
-        let progress = Self::create_progress_bar(conf.size);
-        progress.set_style(style);
-        Self::configure_progress_bar(&progress, conf);
-
-        progress
+        Self::create_configured_progress_bar(conf.size, style, conf)
     }
 
     /// Convert format tokens to numeric output values
