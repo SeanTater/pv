@@ -2,7 +2,8 @@
 name = "pv"
 version = "0.4.0"
 authors = ["Sean Gallagher <stgallag@gmail.com>"]
-edition = "2018"
+edition = "2021"
+rust-version = "1.75"
 description = "Rust reimplementation of the unix pipeview (pv) utility"
 license = "MIT"
 documentation = "https://docs.rs/pv"

@@ -182,6 +182,13 @@ struct PipeViewConfig {
 }
 
 fn main() {
+    if let Err(e) = run() {
+        eprintln!("pv: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut matches = PipeViewConfig::parse();
 
     // Guess an expected size if possible
@@ -192,12 +199,15 @@ fn main() {
                 .iter()
                 .filter(|fname| fname.as_str() != "-") // Skip stdin
                 .map(|fname| {
-                    File::open(fname)
-                        .expect("Failed to open file")
+                    let f = File::open(fname)
+                        .map_err(|e| format!("failed to open '{fname}': {e}"))?;
+                    let meta = f
                         .metadata()
-                        .expect("Could not stat file")
-                        .len()
+                        .map_err(|e| format!("failed to get metadata for '{fname}': {e}"))?;
+                    Ok::<u64, Box<dyn std::error::Error>>(meta.len())
                 })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
                 .sum(),
         ),
     );
@@ -205,27 +215,36 @@ fn main() {
     let sources = if matches.input_filenames.is_empty() {
         Box::new(io::stdin()) as Box<dyn Read>
     } else {
-        matches
+        let files: Vec<Box<dyn Read>> = matches
             .input_filenames
             .iter()
             // Beware a lot of boxing coming up
-            .map(|fname| match fname.as_str() {
-                // Interpret - as stdin
-                "-" => Box::new(io::stdin()) as Box<dyn Read>,
-                _ => Box::new(File::open(fname).expect("Failed to open file")) as Box<dyn Read>,
+            .map(|fname| -> Result<Box<dyn Read>, Box<dyn std::error::Error>> {
+                match fname.as_str() {
+                    // Interpret - as stdin
+                    "-" => Ok(Box::new(io::stdin()) as Box<dyn Read>),
+                    _ => {
+                        let f = File::open(fname)
+                            .map_err(|e| format!("failed to open '{fname}': {e}"))
+                            .map_err(Box::<dyn std::error::Error>::from)?;
+                        Ok(Box::new(f) as Box<dyn Read>)
+                    }
+                }
             })
-            // Concatenate the files
-            .fold(Box::new(io::empty()) as Box<dyn Read>, |ch, f| {
-                Box::new(ch.chain(f)) as Box<dyn Read>
-            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut acc: Box<dyn Read> = Box::new(io::empty());
+        for f in files {
+            acc = Box::new(acc.chain(f));
+        }
+        acc
     };
 
     let sink: Box<dyn Write> = if let Some(ref output_path) = matches.output_file {
         // Output to file
         Box::new(io::BufWriter::new(
-            File::create(output_path).unwrap_or_else(|e| {
-                panic!("Failed to create output file '{}': {}", output_path, e)
-            }),
+            File::create(output_path)
+                .map_err(|e| format!("failed to create output file '{output_path}': {e}"))
+                .map_err(Box::<dyn std::error::Error>::from)?,
         ))
     } else {
         // Output to stdout
@@ -258,13 +277,15 @@ fn main() {
         rate_limit: matches.rate_limit,
         rate_limit_start: std::time::Instant::now(),
         total_bytes_transferred: 0,
+        total_lines_transferred: 0,
         stop_at_size: matches.stop_at_size,
         wait_for_first_byte: matches.wait_for_first_byte,
         delay_start: matches.delay_start,
         first_byte_received: false,
     }
-    .pipeview()
-    .unwrap();
+    .pipeview()?;
+
+    Ok(())
 }
 
 /// Prevent a bunch of boxing noise by forcing a cast
@@ -443,6 +464,7 @@ struct PipeView {
     rate_limit: Option<u64>,
     rate_limit_start: std::time::Instant,
     total_bytes_transferred: u64,
+    total_lines_transferred: u64,
     stop_at_size: Option<u64>,
     wait_for_first_byte: bool,
     delay_start: Option<f64>,
@@ -594,12 +616,10 @@ impl PipeView {
             }
             FormatToken::ProgressAmountOnly => {
                 if let Some(length) = self.progress.length() {
-                    if length > 0 {
-                        let percentage = (self.progress.position() * 100) / length;
-                        Some(percentage.to_string())
-                    } else {
-                        Some("0".to_string())
-                    }
+                    let percentage = (self.progress.position() * 100)
+                        .checked_div(length)
+                        .unwrap_or(0);
+                    Some(percentage.to_string())
                 } else {
                     // For unknown size, just show position
                     Some(self.progress.position().to_string())
@@ -609,12 +629,10 @@ impl PipeView {
             // For numeric mode, progress bars become percentage
             FormatToken::Progress { .. } | FormatToken::ProgressBarOnly { .. } => {
                 if let Some(length) = self.progress.length() {
-                    if length > 0 {
-                        let percentage = (self.progress.position() * 100) / length;
-                        Some(percentage.to_string())
-                    } else {
-                        Some("0".to_string())
-                    }
+                    let percentage = (self.progress.position() * 100)
+                        .checked_div(length)
+                        .unwrap_or(0);
+                    Some(percentage.to_string())
                 } else {
                     Some(self.progress.position().to_string())
                 }
@@ -674,12 +692,10 @@ impl PipeView {
                 && !self.numeric_config.show_rate
             {
                 if let Some(length) = self.progress.length() {
-                    if length > 0 {
-                        let percentage = (self.progress.position() * 100) / length;
-                        parts.push(percentage.to_string());
-                    } else {
-                        parts.push("0".to_string());
-                    }
+                    let percentage = (self.progress.position() * 100)
+                        .checked_div(length)
+                        .unwrap_or(0);
+                    parts.push(percentage.to_string());
                 } else {
                     parts.push(self.progress.position().to_string());
                 }
@@ -755,17 +771,58 @@ impl PipeView {
                 Err(e) => return Err(e.into()),
             };
 
-            // Check stop-at-size limit before writing
+            // Check stop-at-size limit before writing (byte mode: truncate to remaining bytes;
+            // line mode: check stop_size == 0 to avoid writing anything at all)
             let actual_len = if let Some(stop_size) = self.stop_at_size {
-                let remaining = stop_size.saturating_sub(written);
-                if remaining == 0 {
-                    // We've reached the stop size, finish
-                    if self.numeric_mode {
-                        self.output_numeric();
+                match self.line_mode {
+                    LineMode::Byte => {
+                        let remaining = stop_size.saturating_sub(written);
+                        if remaining == 0 {
+                            // We've reached the stop size, finish
+                            if self.numeric_mode {
+                                self.output_numeric();
+                            }
+                            return Ok(written);
+                        }
+                        std::cmp::min(len, remaining as usize)
                     }
-                    return Ok(written);
+                    LineMode::Line(delim) => {
+                        // In line mode, stop_size == 0 means stop immediately
+                        if stop_size == 0 {
+                            if self.numeric_mode {
+                                self.output_numeric();
+                            }
+                            return Ok(written);
+                        }
+                        // Check if we've already reached the limit
+                        if self.total_lines_transferred >= stop_size {
+                            if self.numeric_mode {
+                                self.output_numeric();
+                            }
+                            return Ok(written);
+                        }
+                        // Count lines in the buffer
+                        let lines_in_buf = buf[..len].iter().filter(|b| **b == delim).count();
+                        let remaining_lines = stop_size - self.total_lines_transferred;
+                        if (lines_in_buf as u64) <= remaining_lines {
+                            len
+                        } else {
+                            // Find the byte position after the `remaining_lines`-th line terminator
+                            let mut line_count = 0;
+                            let mut pos = 0;
+                            for (i, &b) in buf[..len].iter().enumerate() {
+                                if b == delim {
+                                    line_count += 1;
+                                    if line_count == remaining_lines as usize {
+                                        pos = i + 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            pos
+                        }
+                    }
                 }
-                std::cmp::min(len, remaining as usize)
             } else {
                 len
             };
@@ -779,6 +836,7 @@ impl PipeView {
             let transfer_unit = match self.line_mode {
                 LineMode::Line(delim) => {
                     let lines = buf[..actual_len].iter().filter(|b| **b == delim).count() as u64;
+                    self.total_lines_transferred += lines;
                     // Only update progress if we're past the wait-for-first-byte and delay period
                     if !self.wait_for_first_byte || self.first_byte_received {
                         self.progress.inc(lines);
@@ -793,6 +851,19 @@ impl PipeView {
                     actual_len as u64
                 }
             };
+
+            // In line mode, check stop-at-size after writing (we truncated pre-write,
+            // but also check here for the edge case where a partial final line was written)
+            if matches!(self.line_mode, LineMode::Line(_)) {
+                if let Some(stop_size) = self.stop_at_size {
+                    if self.total_lines_transferred >= stop_size {
+                        if self.numeric_mode {
+                            self.output_numeric();
+                        }
+                        return Ok(written);
+                    }
+                }
+            }
 
             // Apply rate limiting
             self.apply_rate_limit(transfer_unit);

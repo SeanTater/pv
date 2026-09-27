@@ -256,6 +256,35 @@ fn test_data_integrity_with_stop_at_size() {
 }
 
 #[test]
+fn test_stop_at_size_line_mode() {
+    let test_data = "line1\nline2\nline3\nline4\nline5\n";
+    let test_file = create_test_file(test_data);
+
+    let output = pv_cmd()
+        .arg("-S")
+        .arg("2") // Stop after 2 lines
+        .arg("-l") // Line mode
+        .arg("-q") // Quiet
+        .arg(test_file.path())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output_str = String::from_utf8(output).unwrap();
+    // Should output at most 2 lines (or slightly more due to buffering)
+    let lines: Vec<&str> = output_str.lines().collect();
+    assert!(
+        lines.len() <= 3,
+        "Expected at most 3 lines (2 + buffer tolerance), got {}: '{}'",
+        lines.len(),
+        output_str
+    );
+    assert!(!lines.is_empty(), "Expected at least 1 line");
+}
+
+#[test]
 fn test_empty_input_with_features() {
     let test_file = create_test_file("");
 
