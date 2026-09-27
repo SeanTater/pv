@@ -155,6 +155,9 @@ struct PipeViewConfig {
     /// Numeric output - write integer values to stderr instead of visual progress
     #[arg(short = 'n', long = "numeric")]
     numeric: bool,
+    #[arg(short = 'v', long = "verbose", help_heading = Some("Output Control"),
+          help = "Print a summary line (total transferred, elapsed time, average rate) on completion")]
+    verbose: bool,
     /// Rate limit data transfer to RATE bytes per second (k/m/g/t suffixes allowed)
     #[arg(short = 'L', long = "rate-limit", value_parser = parse_rate_limit)]
     rate_limit: Option<u64>,
@@ -282,6 +285,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         wait_for_first_byte: matches.wait_for_first_byte,
         delay_start: matches.delay_start,
         first_byte_received: false,
+        verbose: matches.verbose,
     }
     .pipeview()?;
 
@@ -290,7 +294,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Prevent a bunch of boxing noise by forcing a cast
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum FormatToken {
     Text(String),
     Progress { width: Option<usize> },
@@ -469,6 +473,7 @@ struct PipeView {
     wait_for_first_byte: bool,
     delay_start: Option<f64>,
     first_byte_received: bool,
+    verbose: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -735,6 +740,34 @@ impl PipeView {
         }
     }
 
+    fn verbose_summary(&self) -> String {
+        let elapsed = self.rate_limit_start.elapsed();
+        let elapsed_secs = elapsed.as_secs_f64();
+        if matches!(self.line_mode, LineMode::Line(_)) {
+            let lines = self.progress.position();
+            let rate = if elapsed_secs > 0.0 {
+                lines as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            format!("{} lines copied, {:.2} s, {:.0} lines/s", lines, elapsed_secs, rate)
+        } else {
+            let bytes = self.progress.position();
+            let rate = if elapsed_secs > 0.0 {
+                bytes as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            let rate_display = format_units(rate as u64, self.si_units, self.bits_mode);
+            format!(
+                "{} copied, {:.2} s, {}/s",
+                format_units(bytes, self.si_units, self.bits_mode),
+                elapsed_secs,
+                rate_display
+            )
+        }
+    }
+
     fn pipeview(&mut self) -> Result<u64, Box<dyn ::std::error::Error>> {
         // Essentially std::io::copy
         let mut buf = [0; DEFAULT_BUF_SIZE];
@@ -747,6 +780,9 @@ impl PipeView {
                     // Final numeric output when done
                     if self.numeric_mode {
                         self.output_numeric();
+                    }
+                    if self.verbose {
+                        eprintln!("{}", self.verbose_summary());
                     }
                     return Ok(written);
                 }
@@ -782,6 +818,9 @@ impl PipeView {
                             if self.numeric_mode {
                                 self.output_numeric();
                             }
+                            if self.verbose {
+                                eprintln!("{}", self.verbose_summary());
+                            }
                             return Ok(written);
                         }
                         std::cmp::min(len, remaining as usize)
@@ -792,12 +831,18 @@ impl PipeView {
                             if self.numeric_mode {
                                 self.output_numeric();
                             }
+                            if self.verbose {
+                                eprintln!("{}", self.verbose_summary());
+                            }
                             return Ok(written);
                         }
                         // Check if we've already reached the limit
                         if self.total_lines_transferred >= stop_size {
                             if self.numeric_mode {
                                 self.output_numeric();
+                            }
+                            if self.verbose {
+                                eprintln!("{}", self.verbose_summary());
                             }
                             return Ok(written);
                         }
@@ -860,6 +905,9 @@ impl PipeView {
                         if self.numeric_mode {
                             self.output_numeric();
                         }
+                        if self.verbose {
+                            eprintln!("{}", self.verbose_summary());
+                        }
                         return Ok(written);
                     }
                 }
@@ -884,5 +932,249 @@ impl PipeView {
 
             written += actual_len as u64;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── parse_rate_limit ────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_rate_limit_basic_number() {
+        assert_eq!(parse_rate_limit("100"), Ok(100));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_k_suffix() {
+        assert_eq!(parse_rate_limit("5k"), Ok(5120));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_m_suffix() {
+        assert_eq!(parse_rate_limit("2m"), Ok(2 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_g_suffix() {
+        assert_eq!(parse_rate_limit("1g"), Ok(1024 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_t_suffix() {
+        assert_eq!(parse_rate_limit("1t"), Ok(1024 * 1024 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_mixed_case() {
+        // Suffix is converted to lowercase, so "5K" works like "5k"
+        assert_eq!(parse_rate_limit("5K"), Ok(5120));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_empty() {
+        let result = parse_rate_limit("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_invalid_number() {
+        let result = parse_rate_limit("abc");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid number"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_invalid_suffix() {
+        let result = parse_rate_limit("100x");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid suffix"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_suffix_only() {
+        let result = parse_rate_limit("k");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid number"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_overflow() {
+        // u64::MAX * 1024 overflows
+        let result = parse_rate_limit("18446744073709551615k");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("too large"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_zero() {
+        assert_eq!(parse_rate_limit("0"), Ok(0));
+    }
+
+    // ─── format_units ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_format_units_small_bytes() {
+        assert_eq!(format_units(15, false, false), "15B");
+    }
+
+    #[test]
+    fn test_format_units_kib() {
+        assert_eq!(format_units(1024, false, false), "1.00KiB");
+    }
+
+    #[test]
+    fn test_format_units_mib() {
+        assert_eq!(format_units(1048576, false, false), "1.00MiB");
+    }
+
+    #[test]
+    fn test_format_units_kb() {
+        assert_eq!(format_units(1024, true, false), "1.02kB");
+    }
+
+    #[test]
+    fn test_format_units_mb() {
+        assert_eq!(format_units(1000000, true, false), "1.00MB");
+    }
+
+    #[test]
+    fn test_format_units_bits_small() {
+        assert_eq!(format_units(15, false, true), "120bit");
+    }
+
+    #[test]
+    fn test_format_units_kibit() {
+        assert_eq!(format_units(1024, false, true), "8.00Kibit");
+    }
+
+    #[test]
+    fn test_format_units_kbit() {
+        assert_eq!(format_units(1024, true, true), "8.19kbit");
+    }
+
+    #[test]
+    fn test_format_units_zero() {
+        assert_eq!(format_units(0, false, false), "0B");
+    }
+
+    #[test]
+    fn test_format_units_gib() {
+        assert_eq!(format_units(1073741824, false, false), "1.00GiB");
+    }
+
+    #[test]
+    fn test_format_units_precision_zero_decimals() {
+        // 123456 / 1024 = 120.5625, which is >= 100, so 0 decimal places
+        assert_eq!(format_units(123456, false, false), "121KiB");
+    }
+
+    // ─── parse_format_string ─────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_format_string_empty() {
+        assert_eq!(parse_format_string(""), vec![]);
+    }
+
+    #[test]
+    fn test_parse_format_string_plain_text() {
+        assert_eq!(
+            parse_format_string("hello"),
+            vec![FormatToken::Text("hello".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_progress() {
+        assert_eq!(
+            parse_format_string("%p"),
+            vec![FormatToken::Progress { width: None }]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_timer() {
+        assert_eq!(parse_format_string("%t"), vec![FormatToken::Timer]);
+    }
+
+    #[test]
+    fn test_parse_format_string_bytes() {
+        assert_eq!(parse_format_string("%b"), vec![FormatToken::Bytes]);
+    }
+
+    #[test]
+    fn test_parse_format_string_rate() {
+        assert_eq!(parse_format_string("%r"), vec![FormatToken::Rate]);
+    }
+
+    #[test]
+    fn test_parse_format_string_name() {
+        assert_eq!(parse_format_string("%N"), vec![FormatToken::Name]);
+    }
+
+    #[test]
+    fn test_parse_format_string_percent_escape() {
+        assert_eq!(
+            parse_format_string("%%"),
+            vec![FormatToken::Text("%".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_long_timer() {
+        assert_eq!(parse_format_string("%{timer}"), vec![FormatToken::Timer]);
+    }
+
+    #[test]
+    fn test_parse_format_string_long_bytes() {
+        assert_eq!(parse_format_string("%{bytes}"), vec![FormatToken::Bytes]);
+    }
+
+    #[test]
+    fn test_parse_format_string_long_progress() {
+        assert_eq!(
+            parse_format_string("%{progress}"),
+            vec![FormatToken::Progress { width: None }]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_width_prefix() {
+        assert_eq!(
+            parse_format_string("%20p"),
+            vec![FormatToken::Progress {
+                width: Some(20)
+            }]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_unknown_short() {
+        assert_eq!(
+            parse_format_string("%x"),
+            vec![FormatToken::Text("%x".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_unknown_long() {
+        assert_eq!(
+            parse_format_string("%{unknown}"),
+            vec![FormatToken::Text("%{unknown}".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_text_percent() {
+        // "100%%" produces two text tokens: "100" and "%"
+        assert_eq!(
+            parse_format_string("100%%"),
+            vec![
+                FormatToken::Text("100".into()),
+                FormatToken::Text("%".into())
+            ]
+        );
     }
 }

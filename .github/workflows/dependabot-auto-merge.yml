@@ -32,13 +32,36 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
 
-    - name: Auto-merge minor and patch updates
+    - name: Check if update is minor/patch only
+      id: check_version
       if: success()
       run: |
-        # Check if this is a minor or patch update
-        if [[ "${{ github.event.pull_request.title }}" =~ ^Bump.*from.*to.* ]]; then
-          echo "This appears to be a dependency update"
-          gh pr merge --auto --squash "${{ github.event.pull_request.number }}"
+        TITLE="${{ github.event.pull_request.title }}"
+        # Extract old and new versions
+        OLD_VER=$(echo "$TITLE" | grep -oP 'from \K[^ ]+')
+        NEW_VER=$(echo "$TITLE" | grep -oP 'to \K[^ ]+')
+
+        if [ -z "$OLD_VER" ] || [ -z "$NEW_VER" ]; then
+          echo "Could not parse versions, skipping auto-merge"
+          echo "should_merge=false" >> $GITHUB_OUTPUT
+          exit 0
         fi
+
+        # Extract major versions
+        OLD_MAJOR=$(echo "$OLD_VER" | cut -d. -f1)
+        NEW_MAJOR=$(echo "$NEW_VER" | cut -d. -f1)
+
+        if [ "$OLD_MAJOR" != "$NEW_MAJOR" ]; then
+          echo "Major version bump detected ($OLD_VER -> $NEW_VER), not auto-merging"
+          echo "should_merge=false" >> $GITHUB_OUTPUT
+        else
+          echo "Minor/patch update ($OLD_VER -> $NEW_VER), auto-merging"
+          echo "should_merge=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Auto-merge minor and patch updates
+      if: success() && steps.check_version.outputs.should_merge == 'true'
+      run: |
+        gh pr merge --auto --squash "${{ github.event.pull_request.number }}"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
