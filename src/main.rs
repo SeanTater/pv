@@ -89,6 +89,7 @@ fn format_units(value: u64, use_si_units: bool, bits_mode: bool) -> String {
 }
 
 #[derive(Parser, Debug)]
+#[command(version)]
 struct PipeViewConfig {
     /// Set estimated data size to SIZE bytes
     #[arg(short = 's')]
@@ -158,8 +159,8 @@ struct PipeViewConfig {
     #[arg(short = 'v', long = "verbose", help_heading = Some("Output Control"),
           help = "Print a summary line (total transferred, elapsed time, average rate) on completion")]
     verbose: bool,
-    /// Rate limit data transfer to RATE bytes per second (k/m/g/t suffixes allowed)
-    #[arg(short = 'L', long = "rate-limit", value_parser = parse_rate_limit)]
+    #[arg(short = 'L', long = "rate-limit", value_parser = parse_rate_limit,
+          help = "Rate limit data transfer to RATE per second (k/m/g/t suffixes). In line mode (-l), limits to RATE lines/second")]
     rate_limit: Option<u64>,
     /// Output to file instead of stdout
     #[arg(short = 'o', long = "output")]
@@ -193,6 +194,24 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut matches = PipeViewConfig::parse();
+
+    // Warn about unsupported flags that are accepted for compatibility
+    let mut warnings = Vec::new();
+    if matches.buffer_percent {
+        warnings.push("-T (buffer-percent) is not supported and will be ignored");
+    }
+    if matches.buffer_size.is_some() {
+        warnings.push("-B (buffer-size) is not supported and will be ignored");
+    }
+    if matches.height.is_some() {
+        warnings.push("-H (height) is not supported and will be ignored");
+    }
+    if matches.progress {
+        warnings.push("-p (progress) is not supported; the progress bar is always shown");
+    }
+    for w in &warnings {
+        eprintln!("pv: warning: {w}");
+    }
 
     // Guess an expected size if possible
     matches.size = Some(

@@ -50,6 +50,15 @@ fn test_help_option() {
 }
 
 #[test]
+fn test_version_flag() {
+    pv_cmd()
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0.5.0"));
+}
+
+#[test]
 fn test_version_parsing() {
     // Test that the binary can be executed without errors
     let output = pv_cmd()
