@@ -1,130 +1,31 @@
-# CLAUDE.md
+# Repository guidance
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-This is a Rust reimplementation of the Unix `pv` (pipe viewer) utility. It monitors data flowing through pipes and provides progress information including transfer rates, elapsed time, estimated completion time, and progress bars.
-
-## Common Commands
-
-### Build and Run
-```bash
-cargo build          # Build the project
-cargo run             # Run with default settings
-cargo run -- --help  # Show available options
-```
-
-### Testing
-```bash
-cargo test           # Run all tests (unit + integration)
-cargo test --quiet   # Run tests with minimal output
-cargo check          # Quick syntax check
-```
-
-### Development
-```bash
-cargo clippy         # Run linter
-cargo fmt            # Format code
-```
+This Rust implementation targets drop-in compatibility with upstream pv 1.12.0. Read README.md for supported behavior and remaining differences; do not claim complete parity. Rust 1.85 is the minimum supported version.
 
 ## Architecture
 
-The application is structured as a single-file Rust program (`src/main.rs`, ~1000+ lines, Edition 2021). The `main()` function is a thin wrapper around `run() -> Result<(), Box<dyn Error>>`. Key components:
+- `src/main.rs`: dispatch, sources, output setup, and store-and-forward orchestration.
+- `src/cli.rs`: clap configuration, checked quantity parsing, and validation.
+- `src/transfer.rs`: buffered IO, Linux kernel copying, throttling, sparse output, direct IO, and recoverable read errors.
+- `src/display.rs`: format parsing, counters, rolling rates, timing, statistics, and rendering.
+- `src/error.rs`: typed failure categories and exit statuses.
+- `src/control.rs`: private Unix socket updates and queries.
+- `src/process.rs`: command monitoring and Linux descriptor watching.
+- `src/terminal.rs`: terminal dimensions and coordinated cursor rows.
 
-### Core Types
-- `PipeViewConfig`: CLI configuration struct using `clap::Parser` with extensive command-line options
-- `PipeView`: Main processing struct that handles data transfer with progress tracking
-- `LineMode`: Enum for byte vs line counting modes
+The default buffer is 128 KiB, bounded to 64 MiB. Display sampling and last-written history are bounded. Preserve payload bytes and account only successfully written bytes. Do not truncate an output alias of an input. A byte or line stop must not consume subsequent input. Flush failures must propagate. Kernel fallback must preserve partial progress and staged bytes.
 
-### Key Dependencies
-- `clap`: Command-line argument parsing with derive features
-- `indicatif`: Progress bar and spinner functionality
+## Validation
 
-### Dev Dependencies
-- `assert_cmd`: CLI testing framework
-- `predicates`: Output matching for tests
-- `tempfile`: Temporary files for file-based tests
-
-### Data Flow
-1. Parse CLI arguments into `PipeViewConfig`
-2. Determine input sources (stdin or files specified with `-f`)
-3. Create chained readers for multiple input files
-4. Configure progress bar based on CLI options and estimated size
-5. Copy data from source to stdout with progress updates
-6. Handle read/write errors based on skip flags
-
-### Progress Bar Configuration
-The progress bar template is dynamically built based on CLI flags:
-- Name prefix (`-N`)
-- Elapsed time (`-t`)
-- Progress bar with configurable width (`-w`)
-- Byte/line counts (`-b`, `-l`)
-- Transfer rates (`-r`, `-a`)
-- ETA calculations (`-e`, `-I`)
-
-Default template when no specific options are provided shows elapsed time, progress bar, percentage, transferred/total, rate, and ETA.
-
-## Key Implementation Details
-
-- Uses 64KB default buffer size for I/O operations
-- Supports both byte and line counting modes (line mode counts newlines or null terminators)
-- Automatically estimates total size from input file metadata when possible
-- Implements error skipping for both input and output operations
-- Uses `indicatif::ProgressBar` for cross-platform progress display
-- Rate limiting (`-L` flag) with k/m/g/t suffix support for bytes or lines per second
-- Cumulative timing-based rate limiting that tracks total transfer progress
-- Verbose mode (`-v` / `--verbose`) prints a completion summary to stderr
-
-## Testing
-
-The project includes 174 tests total (38 unit + 136 integration).
-
-### Unit Tests (`src/main.rs`)
-- 38 tests in `#[cfg(test)] mod tests`
-
-### Integration Tests (`tests/` directory)
-- `integration_tests.rs` - Basic functionality tests (24 tests)
-- `format_tests.rs` - Custom format string tests (19 tests)
-- `edge_cases.rs` - Edge cases and error handling (22 tests)
-- `numeric_tests.rs` - Numeric output mode tests (18 tests)
-- `rate_limiting_tests.rs` - Rate limiting functionality tests (11 tests)
-- `si_units_and_bits_tests.rs` - SI units and bits display tests (16 tests)
-- `output_redirection_tests.rs` - Output redirection tests (10 tests)
-- `stop_wait_delay_tests.rs` - Stop/wait/delay feature tests (16 tests)
-
-Tests use `assert_cmd` for CLI testing, `predicates` for output matching, and `tempfile` for file-based tests. All tests verify that data passes through correctly while testing the progress monitoring functionality. Rate limiting tests include timing-based assertions to verify actual rate limiting behavior.
-
-## Development Workflow
-
-When adding new features:
-
-1. Create a feature branch: `git checkout -b feature/feature-name`
-2. Set up pre-commit hooks (first time only): `chmod +x .git/hooks/pre-commit`
-3. Implement the feature with tests
-4. Run tests: `cargo test`
-5. Run linting: `cargo clippy`
-6. Format code: `cargo fmt` (or rely on pre-commit hook)
-7. Commit changes with descriptive messages
-8. Push branch: `git push -u origin feature/feature-name`
-9. Create PR: `gh pr create --title "Add feature" --body "Description"`
-
-Always ensure tests pass before creating pull requests.
-
-## Pre-commit Hooks
-
-The repository includes a Git pre-commit hook that automatically:
-- Runs `cargo fmt` to format code and stages formatted files
-- Runs `cargo clippy` to check for linting issues
-- Prevents commits that don't pass formatting or linting checks
-
-The hook is located at `.git/hooks/pre-commit` and should be automatically executable. If not, run:
 ```bash
-chmod +x .git/hooks/pre-commit
+cargo test --locked
+cargo test --locked --release
+cargo +1.85.0 test --locked
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+PV_REFERENCE=/path/to/pv-1.12.0 cargo test --locked --test compatibility_tests
 ```
 
-For advanced setups, a `.pre-commit-config.yaml` is also provided for use with the `pre-commit` framework:
-```bash
-uv tool install pre-commit
-pre-commit install
-```
+Use regression tests for observed failures and differential fixtures for upstream behavior. Inject IO failures for partial writes, interruptions, zero writes, and final flush errors. Use real pseudo-terminals for terminal behavior; regular captured stderr does not exercise those paths. Cross-compilation does not establish native runtime behavior.
+
+See benchmarks/README.md for the reproducible performance harness. Regenerate Flatpak dependency sources with `python3 benchmarks/generate_flatpak_sources.py` after dependency changes. Do not commit, push, or publish unless requested.

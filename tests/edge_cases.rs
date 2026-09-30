@@ -271,7 +271,7 @@ fn test_all_flags_together() {
         .arg("-i")
         .arg("0.1") // interval
         .arg("-E") // skip input errors
-        .arg("-O") // skip output errors
+        .arg("-O") // sparse output
         .write_stdin(test_data)
         .assert()
         .success()

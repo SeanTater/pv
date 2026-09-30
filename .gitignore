@@ -20,3 +20,6 @@ flatpak-build/
 .chunkhound*
 .mcp.json
 
+
+# Python benchmark bytecode
+__pycache__/

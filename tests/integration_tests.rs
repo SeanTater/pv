@@ -204,11 +204,11 @@ fn test_skip_input_errors() {
 }
 
 #[test]
-fn test_skip_output_errors() {
+fn test_sparse_output_flag() {
     let test_data = "test data";
 
     pv_cmd()
-        .arg("-O") // skip output errors
+        .arg("-O") // sparse output (ordinary data is preserved)
         .write_stdin(test_data)
         .assert()
         .success()
@@ -307,48 +307,21 @@ fn test_quiet_mode_suppresses_numeric_output() {
 }
 
 #[test]
-fn test_verbose_flag() {
-    let test_data = "x".repeat(2048);
-    let test_file = create_test_file(&test_data);
-
-    let output = pv_cmd()
-        .arg("-v")
-        .arg("-q")
-        .arg(test_file.path())
+fn test_stats_flag() {
+    pv_cmd()
+        .args(["-v", "-f"])
+        .write_stdin(vec![b'x'; 2048])
         .assert()
-        .success();
-
-    // -v should print a summary line to stderr even with -q
-    let stderr = String::from_utf8(output.get_output().stderr.to_vec()).unwrap();
-    assert!(
-        stderr.contains("copied"),
-        "Expected 'copied' in stderr, got: {}",
-        stderr
-    );
-    assert!(
-        stderr.contains("s"),
-        "Expected time in stderr, got: {}",
-        stderr
-    );
+        .success()
+        .stderr(predicate::str::contains("rate min/avg/max/mdev"));
 }
 
 #[test]
-fn test_verbose_flag_line_mode() {
-    let test_data = "line1\nline2\nline3\nline4\nline5\n";
-    let test_file = create_test_file(test_data);
-
-    let output = pv_cmd()
-        .arg("-v")
-        .arg("-l")
-        .arg("-q")
-        .arg(test_file.path())
+fn test_stats_with_quiet_still_prints_summary() {
+    pv_cmd()
+        .args(["-v", "-q", "-l"])
+        .write_stdin("one\ntwo\n")
         .assert()
-        .success();
-
-    let stderr = String::from_utf8(output.get_output().stderr.to_vec()).unwrap();
-    assert!(
-        stderr.contains("lines copied"),
-        "Expected 'lines copied' in stderr, got: {}",
-        stderr
-    );
+        .success()
+        .stderr(predicate::str::contains("rate min/avg/max/mdev"));
 }
