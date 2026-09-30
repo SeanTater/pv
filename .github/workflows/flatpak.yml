@@ -19,6 +19,10 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    - name: Pin Flatpak source to this revision
+      run: |
+        sed -i 's/branch: master/commit: ${{ github.sha }}/' com.github.SeanTater.pv.yml
+
     - name: Build Flatpak
       uses: flatpak/flatpak-github-actions/flatpak-builder@v6
       with:
