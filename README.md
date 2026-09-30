@@ -118,3 +118,21 @@ After changing dependencies, regenerate Flatpak's offline crate source list:
 ```sh
 python3 benchmarks/generate_flatpak_sources.py
 ```
+
+## Publishing a release
+
+Merge a package/lockfile version bump, wait for the branch release builds, then
+push the matching annotated `vX.Y.Z` tag. `release.yml` publishes through
+crates.io trusted publishing using the GitHub environment `default`; no stored
+registry token is needed. Keep the crates.io repository, workflow, and environment
+settings aligned with that job.
+
+To recover crates.io publication for an existing tag after a workflow fix, run:
+
+```bash
+gh workflow run release.yml --ref master -f release_tag=v0.6.0
+```
+
+This manual run uses the current workflow and checks out the existing tag's
+source. It only publishes the crate; it does not rebuild or replace GitHub assets.
+A rerun of an old Actions run continues to use its original workflow definition.
