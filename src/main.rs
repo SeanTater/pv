@@ -89,6 +89,7 @@ fn format_units(value: u64, use_si_units: bool, bits_mode: bool) -> String {
 }
 
 #[derive(Parser, Debug)]
+#[command(version)]
 struct PipeViewConfig {
     /// Set estimated data size to SIZE bytes
     #[arg(short = 's')]
@@ -155,8 +156,11 @@ struct PipeViewConfig {
     /// Numeric output - write integer values to stderr instead of visual progress
     #[arg(short = 'n', long = "numeric")]
     numeric: bool,
-    /// Rate limit data transfer to RATE bytes per second (k/m/g/t suffixes allowed)
-    #[arg(short = 'L', long = "rate-limit", value_parser = parse_rate_limit)]
+    #[arg(short = 'v', long = "verbose", help_heading = Some("Output Control"),
+          help = "Print a summary line (total transferred, elapsed time, average rate) on completion")]
+    verbose: bool,
+    #[arg(short = 'L', long = "rate-limit", value_parser = parse_rate_limit,
+          help = "Rate limit data transfer to RATE per second (k/m/g/t suffixes). In line mode (-l), limits to RATE lines/second")]
     rate_limit: Option<u64>,
     /// Output to file instead of stdout
     #[arg(short = 'o', long = "output")]
@@ -182,7 +186,32 @@ struct PipeViewConfig {
 }
 
 fn main() {
+    if let Err(e) = run() {
+        eprintln!("pv: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut matches = PipeViewConfig::parse();
+
+    // Warn about unsupported flags that are accepted for compatibility
+    let mut warnings = Vec::new();
+    if matches.buffer_percent {
+        warnings.push("-T (buffer-percent) is not supported and will be ignored");
+    }
+    if matches.buffer_size.is_some() {
+        warnings.push("-B (buffer-size) is not supported and will be ignored");
+    }
+    if matches.height.is_some() {
+        warnings.push("-H (height) is not supported and will be ignored");
+    }
+    if matches.progress {
+        warnings.push("-p (progress) is not supported; the progress bar is always shown");
+    }
+    for w in &warnings {
+        eprintln!("pv: warning: {w}");
+    }
 
     // Guess an expected size if possible
     matches.size = Some(
@@ -192,12 +221,15 @@ fn main() {
                 .iter()
                 .filter(|fname| fname.as_str() != "-") // Skip stdin
                 .map(|fname| {
-                    File::open(fname)
-                        .expect("Failed to open file")
+                    let f = File::open(fname)
+                        .map_err(|e| format!("failed to open '{fname}': {e}"))?;
+                    let meta = f
                         .metadata()
-                        .expect("Could not stat file")
-                        .len()
+                        .map_err(|e| format!("failed to get metadata for '{fname}': {e}"))?;
+                    Ok::<u64, Box<dyn std::error::Error>>(meta.len())
                 })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
                 .sum(),
         ),
     );
@@ -205,27 +237,36 @@ fn main() {
     let sources = if matches.input_filenames.is_empty() {
         Box::new(io::stdin()) as Box<dyn Read>
     } else {
-        matches
+        let files: Vec<Box<dyn Read>> = matches
             .input_filenames
             .iter()
             // Beware a lot of boxing coming up
-            .map(|fname| match fname.as_str() {
-                // Interpret - as stdin
-                "-" => Box::new(io::stdin()) as Box<dyn Read>,
-                _ => Box::new(File::open(fname).expect("Failed to open file")) as Box<dyn Read>,
+            .map(|fname| -> Result<Box<dyn Read>, Box<dyn std::error::Error>> {
+                match fname.as_str() {
+                    // Interpret - as stdin
+                    "-" => Ok(Box::new(io::stdin()) as Box<dyn Read>),
+                    _ => {
+                        let f = File::open(fname)
+                            .map_err(|e| format!("failed to open '{fname}': {e}"))
+                            .map_err(Box::<dyn std::error::Error>::from)?;
+                        Ok(Box::new(f) as Box<dyn Read>)
+                    }
+                }
             })
-            // Concatenate the files
-            .fold(Box::new(io::empty()) as Box<dyn Read>, |ch, f| {
-                Box::new(ch.chain(f)) as Box<dyn Read>
-            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut acc: Box<dyn Read> = Box::new(io::empty());
+        for f in files {
+            acc = Box::new(acc.chain(f));
+        }
+        acc
     };
 
     let sink: Box<dyn Write> = if let Some(ref output_path) = matches.output_file {
         // Output to file
         Box::new(io::BufWriter::new(
-            File::create(output_path).unwrap_or_else(|e| {
-                panic!("Failed to create output file '{}': {}", output_path, e)
-            }),
+            File::create(output_path)
+                .map_err(|e| format!("failed to create output file '{output_path}': {e}"))
+                .map_err(Box::<dyn std::error::Error>::from)?,
         ))
     } else {
         // Output to stdout
@@ -258,18 +299,21 @@ fn main() {
         rate_limit: matches.rate_limit,
         rate_limit_start: std::time::Instant::now(),
         total_bytes_transferred: 0,
+        total_lines_transferred: 0,
         stop_at_size: matches.stop_at_size,
         wait_for_first_byte: matches.wait_for_first_byte,
         delay_start: matches.delay_start,
         first_byte_received: false,
+        verbose: matches.verbose,
     }
-    .pipeview()
-    .unwrap();
+    .pipeview()?;
+
+    Ok(())
 }
 
 /// Prevent a bunch of boxing noise by forcing a cast
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum FormatToken {
     Text(String),
     Progress { width: Option<usize> },
@@ -443,10 +487,12 @@ struct PipeView {
     rate_limit: Option<u64>,
     rate_limit_start: std::time::Instant,
     total_bytes_transferred: u64,
+    total_lines_transferred: u64,
     stop_at_size: Option<u64>,
     wait_for_first_byte: bool,
     delay_start: Option<f64>,
     first_byte_received: bool,
+    verbose: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -594,12 +640,10 @@ impl PipeView {
             }
             FormatToken::ProgressAmountOnly => {
                 if let Some(length) = self.progress.length() {
-                    if length > 0 {
-                        let percentage = (self.progress.position() * 100) / length;
-                        Some(percentage.to_string())
-                    } else {
-                        Some("0".to_string())
-                    }
+                    let percentage = (self.progress.position() * 100)
+                        .checked_div(length)
+                        .unwrap_or(0);
+                    Some(percentage.to_string())
                 } else {
                     // For unknown size, just show position
                     Some(self.progress.position().to_string())
@@ -609,12 +653,10 @@ impl PipeView {
             // For numeric mode, progress bars become percentage
             FormatToken::Progress { .. } | FormatToken::ProgressBarOnly { .. } => {
                 if let Some(length) = self.progress.length() {
-                    if length > 0 {
-                        let percentage = (self.progress.position() * 100) / length;
-                        Some(percentage.to_string())
-                    } else {
-                        Some("0".to_string())
-                    }
+                    let percentage = (self.progress.position() * 100)
+                        .checked_div(length)
+                        .unwrap_or(0);
+                    Some(percentage.to_string())
                 } else {
                     Some(self.progress.position().to_string())
                 }
@@ -674,12 +716,10 @@ impl PipeView {
                 && !self.numeric_config.show_rate
             {
                 if let Some(length) = self.progress.length() {
-                    if length > 0 {
-                        let percentage = (self.progress.position() * 100) / length;
-                        parts.push(percentage.to_string());
-                    } else {
-                        parts.push("0".to_string());
-                    }
+                    let percentage = (self.progress.position() * 100)
+                        .checked_div(length)
+                        .unwrap_or(0);
+                    parts.push(percentage.to_string());
                 } else {
                     parts.push(self.progress.position().to_string());
                 }
@@ -719,6 +759,34 @@ impl PipeView {
         }
     }
 
+    fn verbose_summary(&self) -> String {
+        let elapsed = self.rate_limit_start.elapsed();
+        let elapsed_secs = elapsed.as_secs_f64();
+        if matches!(self.line_mode, LineMode::Line(_)) {
+            let lines = self.progress.position();
+            let rate = if elapsed_secs > 0.0 {
+                lines as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            format!("{} lines copied, {:.2} s, {:.0} lines/s", lines, elapsed_secs, rate)
+        } else {
+            let bytes = self.progress.position();
+            let rate = if elapsed_secs > 0.0 {
+                bytes as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            let rate_display = format_units(rate as u64, self.si_units, self.bits_mode);
+            format!(
+                "{} copied, {:.2} s, {}/s",
+                format_units(bytes, self.si_units, self.bits_mode),
+                elapsed_secs,
+                rate_display
+            )
+        }
+    }
+
     fn pipeview(&mut self) -> Result<u64, Box<dyn ::std::error::Error>> {
         // Essentially std::io::copy
         let mut buf = [0; DEFAULT_BUF_SIZE];
@@ -731,6 +799,9 @@ impl PipeView {
                     // Final numeric output when done
                     if self.numeric_mode {
                         self.output_numeric();
+                    }
+                    if self.verbose {
+                        eprintln!("{}", self.verbose_summary());
                     }
                     return Ok(written);
                 }
@@ -755,17 +826,67 @@ impl PipeView {
                 Err(e) => return Err(e.into()),
             };
 
-            // Check stop-at-size limit before writing
+            // Check stop-at-size limit before writing (byte mode: truncate to remaining bytes;
+            // line mode: check stop_size == 0 to avoid writing anything at all)
             let actual_len = if let Some(stop_size) = self.stop_at_size {
-                let remaining = stop_size.saturating_sub(written);
-                if remaining == 0 {
-                    // We've reached the stop size, finish
-                    if self.numeric_mode {
-                        self.output_numeric();
+                match self.line_mode {
+                    LineMode::Byte => {
+                        let remaining = stop_size.saturating_sub(written);
+                        if remaining == 0 {
+                            // We've reached the stop size, finish
+                            if self.numeric_mode {
+                                self.output_numeric();
+                            }
+                            if self.verbose {
+                                eprintln!("{}", self.verbose_summary());
+                            }
+                            return Ok(written);
+                        }
+                        std::cmp::min(len, remaining as usize)
                     }
-                    return Ok(written);
+                    LineMode::Line(delim) => {
+                        // In line mode, stop_size == 0 means stop immediately
+                        if stop_size == 0 {
+                            if self.numeric_mode {
+                                self.output_numeric();
+                            }
+                            if self.verbose {
+                                eprintln!("{}", self.verbose_summary());
+                            }
+                            return Ok(written);
+                        }
+                        // Check if we've already reached the limit
+                        if self.total_lines_transferred >= stop_size {
+                            if self.numeric_mode {
+                                self.output_numeric();
+                            }
+                            if self.verbose {
+                                eprintln!("{}", self.verbose_summary());
+                            }
+                            return Ok(written);
+                        }
+                        // Count lines in the buffer
+                        let lines_in_buf = buf[..len].iter().filter(|b| **b == delim).count();
+                        let remaining_lines = stop_size - self.total_lines_transferred;
+                        if (lines_in_buf as u64) <= remaining_lines {
+                            len
+                        } else {
+                            // Find the byte position after the `remaining_lines`-th line terminator
+                            let mut line_count = 0;
+                            let mut pos = 0;
+                            for (i, &b) in buf[..len].iter().enumerate() {
+                                if b == delim {
+                                    line_count += 1;
+                                    if line_count == remaining_lines as usize {
+                                        pos = i + 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            pos
+                        }
+                    }
                 }
-                std::cmp::min(len, remaining as usize)
             } else {
                 len
             };
@@ -779,6 +900,7 @@ impl PipeView {
             let transfer_unit = match self.line_mode {
                 LineMode::Line(delim) => {
                     let lines = buf[..actual_len].iter().filter(|b| **b == delim).count() as u64;
+                    self.total_lines_transferred += lines;
                     // Only update progress if we're past the wait-for-first-byte and delay period
                     if !self.wait_for_first_byte || self.first_byte_received {
                         self.progress.inc(lines);
@@ -793,6 +915,22 @@ impl PipeView {
                     actual_len as u64
                 }
             };
+
+            // In line mode, check stop-at-size after writing (we truncated pre-write,
+            // but also check here for the edge case where a partial final line was written)
+            if matches!(self.line_mode, LineMode::Line(_)) {
+                if let Some(stop_size) = self.stop_at_size {
+                    if self.total_lines_transferred >= stop_size {
+                        if self.numeric_mode {
+                            self.output_numeric();
+                        }
+                        if self.verbose {
+                            eprintln!("{}", self.verbose_summary());
+                        }
+                        return Ok(written);
+                    }
+                }
+            }
 
             // Apply rate limiting
             self.apply_rate_limit(transfer_unit);
@@ -813,5 +951,249 @@ impl PipeView {
 
             written += actual_len as u64;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── parse_rate_limit ────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_rate_limit_basic_number() {
+        assert_eq!(parse_rate_limit("100"), Ok(100));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_k_suffix() {
+        assert_eq!(parse_rate_limit("5k"), Ok(5120));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_m_suffix() {
+        assert_eq!(parse_rate_limit("2m"), Ok(2 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_g_suffix() {
+        assert_eq!(parse_rate_limit("1g"), Ok(1024 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_t_suffix() {
+        assert_eq!(parse_rate_limit("1t"), Ok(1024 * 1024 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_mixed_case() {
+        // Suffix is converted to lowercase, so "5K" works like "5k"
+        assert_eq!(parse_rate_limit("5K"), Ok(5120));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_empty() {
+        let result = parse_rate_limit("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_invalid_number() {
+        let result = parse_rate_limit("abc");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid number"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_invalid_suffix() {
+        let result = parse_rate_limit("100x");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid suffix"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_suffix_only() {
+        let result = parse_rate_limit("k");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid number"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_overflow() {
+        // u64::MAX * 1024 overflows
+        let result = parse_rate_limit("18446744073709551615k");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("too large"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_zero() {
+        assert_eq!(parse_rate_limit("0"), Ok(0));
+    }
+
+    // ─── format_units ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_format_units_small_bytes() {
+        assert_eq!(format_units(15, false, false), "15B");
+    }
+
+    #[test]
+    fn test_format_units_kib() {
+        assert_eq!(format_units(1024, false, false), "1.00KiB");
+    }
+
+    #[test]
+    fn test_format_units_mib() {
+        assert_eq!(format_units(1048576, false, false), "1.00MiB");
+    }
+
+    #[test]
+    fn test_format_units_kb() {
+        assert_eq!(format_units(1024, true, false), "1.02kB");
+    }
+
+    #[test]
+    fn test_format_units_mb() {
+        assert_eq!(format_units(1000000, true, false), "1.00MB");
+    }
+
+    #[test]
+    fn test_format_units_bits_small() {
+        assert_eq!(format_units(15, false, true), "120bit");
+    }
+
+    #[test]
+    fn test_format_units_kibit() {
+        assert_eq!(format_units(1024, false, true), "8.00Kibit");
+    }
+
+    #[test]
+    fn test_format_units_kbit() {
+        assert_eq!(format_units(1024, true, true), "8.19kbit");
+    }
+
+    #[test]
+    fn test_format_units_zero() {
+        assert_eq!(format_units(0, false, false), "0B");
+    }
+
+    #[test]
+    fn test_format_units_gib() {
+        assert_eq!(format_units(1073741824, false, false), "1.00GiB");
+    }
+
+    #[test]
+    fn test_format_units_precision_zero_decimals() {
+        // 123456 / 1024 = 120.5625, which is >= 100, so 0 decimal places
+        assert_eq!(format_units(123456, false, false), "121KiB");
+    }
+
+    // ─── parse_format_string ─────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_format_string_empty() {
+        assert_eq!(parse_format_string(""), vec![]);
+    }
+
+    #[test]
+    fn test_parse_format_string_plain_text() {
+        assert_eq!(
+            parse_format_string("hello"),
+            vec![FormatToken::Text("hello".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_progress() {
+        assert_eq!(
+            parse_format_string("%p"),
+            vec![FormatToken::Progress { width: None }]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_timer() {
+        assert_eq!(parse_format_string("%t"), vec![FormatToken::Timer]);
+    }
+
+    #[test]
+    fn test_parse_format_string_bytes() {
+        assert_eq!(parse_format_string("%b"), vec![FormatToken::Bytes]);
+    }
+
+    #[test]
+    fn test_parse_format_string_rate() {
+        assert_eq!(parse_format_string("%r"), vec![FormatToken::Rate]);
+    }
+
+    #[test]
+    fn test_parse_format_string_name() {
+        assert_eq!(parse_format_string("%N"), vec![FormatToken::Name]);
+    }
+
+    #[test]
+    fn test_parse_format_string_percent_escape() {
+        assert_eq!(
+            parse_format_string("%%"),
+            vec![FormatToken::Text("%".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_long_timer() {
+        assert_eq!(parse_format_string("%{timer}"), vec![FormatToken::Timer]);
+    }
+
+    #[test]
+    fn test_parse_format_string_long_bytes() {
+        assert_eq!(parse_format_string("%{bytes}"), vec![FormatToken::Bytes]);
+    }
+
+    #[test]
+    fn test_parse_format_string_long_progress() {
+        assert_eq!(
+            parse_format_string("%{progress}"),
+            vec![FormatToken::Progress { width: None }]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_width_prefix() {
+        assert_eq!(
+            parse_format_string("%20p"),
+            vec![FormatToken::Progress {
+                width: Some(20)
+            }]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_unknown_short() {
+        assert_eq!(
+            parse_format_string("%x"),
+            vec![FormatToken::Text("%x".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_unknown_long() {
+        assert_eq!(
+            parse_format_string("%{unknown}"),
+            vec![FormatToken::Text("%{unknown}".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_format_string_text_percent() {
+        // "100%%" produces two text tokens: "100" and "%"
+        assert_eq!(
+            parse_format_string("100%%"),
+            vec![
+                FormatToken::Text("100".into()),
+                FormatToken::Text("%".into())
+            ]
+        );
     }
 }

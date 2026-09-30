@@ -159,7 +159,7 @@ fn test_output_file_error_handling() {
         .write_stdin("test")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Failed to create output file"));
+        .stderr(predicate::str::contains("failed to create output file"));
 }
 
 #[test]

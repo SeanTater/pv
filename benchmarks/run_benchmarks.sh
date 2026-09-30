@@ -235,8 +235,8 @@ run_benchmark_suite() {
     
     run_benchmark \
         "Progress Display Overhead" \
-        "cat '$test_file_1gb' | '$RUST_PV' --progress --rate --bytes --eta > /dev/null" \
-        "cat '$test_file_1gb' | '$SYSTEM_PV' --progress --rate --bytes --eta > /dev/null" \
+        "cat '$test_file_1gb' | '$RUST_PV' -p -r -b -e > /dev/null" \
+        "cat '$test_file_1gb' | '$SYSTEM_PV' -p -r -b -e > /dev/null" \
         "Tests overhead of full progress display (progress bar, rate, bytes, ETA) with 1GB data."
     
     # Test 3: Rate limiting
@@ -256,8 +256,8 @@ run_benchmark_suite() {
     
     run_benchmark \
         "Line Counting Mode" \
-        "cat '$line_file' | '$RUST_PV' --lines > /dev/null" \
-        "cat '$line_file' | '$SYSTEM_PV' --lines > /dev/null" \
+        "cat '$line_file' | '$RUST_PV' -l > /dev/null" \
+        "cat '$line_file' | '$SYSTEM_PV' -l > /dev/null" \
         "Tests line counting mode performance with 100,000 lines of text data."
     
     # Test 5: Custom format strings

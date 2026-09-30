@@ -30,7 +30,7 @@ cargo fmt            # Format code
 
 ## Architecture
 
-The application is structured as a single-file Rust program (`src/main.rs`) with these key components:
+The application is structured as a single-file Rust program (`src/main.rs`, ~1000+ lines, Edition 2021). The `main()` function is a thin wrapper around `run() -> Result<(), Box<dyn Error>>`. Key components:
 
 ### Core Types
 - `PipeViewConfig`: CLI configuration struct using `clap::Parser` with extensive command-line options
@@ -40,7 +40,11 @@ The application is structured as a single-file Rust program (`src/main.rs`) with
 ### Key Dependencies
 - `clap`: Command-line argument parsing with derive features
 - `indicatif`: Progress bar and spinner functionality
-- `chrono`: Time handling for progress calculations
+
+### Dev Dependencies
+- `assert_cmd`: CLI testing framework
+- `predicates`: Output matching for tests
+- `tempfile`: Temporary files for file-based tests
 
 ### Data Flow
 1. Parse CLI arguments into `PipeViewConfig`
@@ -70,18 +74,26 @@ Default template when no specific options are provided shows elapsed time, progr
 - Uses `indicatif::ProgressBar` for cross-platform progress display
 - Rate limiting (`-L` flag) with k/m/g/t suffix support for bytes or lines per second
 - Cumulative timing-based rate limiting that tracks total transfer progress
+- Verbose mode (`-v` / `--verbose`) prints a completion summary to stderr
 
 ## Testing
 
-The project includes comprehensive integration tests in the `tests/` directory:
+The project includes 174 tests total (38 unit + 136 integration).
 
-- `integration_tests.rs` - Basic functionality tests (17 tests)
-- `format_tests.rs` - Custom format string tests (19 tests) 
+### Unit Tests (`src/main.rs`)
+- 38 tests in `#[cfg(test)] mod tests`
+
+### Integration Tests (`tests/` directory)
+- `integration_tests.rs` - Basic functionality tests (24 tests)
+- `format_tests.rs` - Custom format string tests (19 tests)
 - `edge_cases.rs` - Edge cases and error handling (22 tests)
 - `numeric_tests.rs` - Numeric output mode tests (18 tests)
 - `rate_limiting_tests.rs` - Rate limiting functionality tests (11 tests)
+- `si_units_and_bits_tests.rs` - SI units and bits display tests (16 tests)
+- `output_redirection_tests.rs` - Output redirection tests (10 tests)
+- `stop_wait_delay_tests.rs` - Stop/wait/delay feature tests (16 tests)
 
-Tests use `assert_cmd` for CLI testing and `tempfile` for file-based tests. All tests verify that data passes through correctly while testing the progress monitoring functionality. Rate limiting tests include timing-based assertions to verify actual rate limiting behavior.
+Tests use `assert_cmd` for CLI testing, `predicates` for output matching, and `tempfile` for file-based tests. All tests verify that data passes through correctly while testing the progress monitoring functionality. Rate limiting tests include timing-based assertions to verify actual rate limiting behavior.
 
 ## Development Workflow
 

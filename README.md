@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/SeanTater/pv/workflows/CI/badge.svg)](https://github.com/SeanTater/pv/actions)
 [![codecov](https://codecov.io/gh/SeanTater/pv/branch/master/graph/badge.svg)](https://codecov.io/gh/SeanTater/pv)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![crates.io](https://img.shields.io/crates/v/pv.svg)](https://crates.io/crates/pv)
 
 `pv` is a Unix pipe monitoring application. (And this is copy of the much older original)
 
@@ -113,7 +115,7 @@ This Rust implementation covers the core functionality of the original `pv` util
 | Average rate window (`-m`) | ✅ | 🔴 Not Implemented |
 | Bar style (`-u`) | ✅ | 🔴 Not Implemented |
 | Extra display (`-x`) | ✅ | 🔴 Not Implemented |
-| Transfer stats (`-v`) | ✅ | 🔴 Not Implemented |
+| Transfer stats (`-v`) | ✅ | ✅ Implemented |
 | Force output (`-f`) | ✅ | ✅ Implemented |
 | Cursor positioning (`-c`) | ✅ | 🔴 Not Implemented |
 | **Data Transfer Features** |
@@ -147,7 +149,7 @@ This Rust implementation covers the core functionality of the original `pv` util
 - [x] SI units (`-k`) - Standards compliance
 - [x] Bits display (`-8`) - Network monitoring use case
 - [ ] Buffer percentage (`-T`) - Useful debugging feature
-- [ ] Transfer statistics (`-v`) - Nice summary feature
+- [x] Transfer statistics (`-v`) - Nice summary feature
 - [ ] Gauge mode (`-g`) - Alternative progress display
 
 **Lower Priority (Advanced Features):**
@@ -159,7 +161,7 @@ This Rust implementation covers the core functionality of the original `pv` util
 
 ### Summary
 
-The current implementation covers exactly **70%** of the standard `pv` features (32 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings, numeric output, rate limiting, output to file, force output, SI units, bits display, stop at size, wait for first byte, and delay start, but lacks many advanced features that make the original `pv` versatile for different use cases.
+The current implementation covers **72%** of the standard `pv` features (33 out of 46 options). It successfully implements the core progress monitoring functionality including custom format strings, numeric output, rate limiting, output to file, force output, SI units, bits display, stop at size, wait for first byte, and delay start, but lacks many advanced features that make the original `pv` versatile for different use cases.
 
 ### Out of Scope Features
 
@@ -189,7 +191,7 @@ Some features are currently **out of scope** for this implementation due to limi
 
 **Advanced Terminal Features**
 - Bar style customization (`-u`)
-- Complex multi-line displays (`-x`, `-v`)
+- Complex multi-line displays (`-x`)
 - May require extending `indicatif` or custom terminal handling
 
 The focus remains on implementing high-value features that provide the most utility while working well within the `indicatif` framework.

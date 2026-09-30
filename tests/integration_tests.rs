@@ -50,6 +50,15 @@ fn test_help_option() {
 }
 
 #[test]
+fn test_version_flag() {
+    pv_cmd()
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0.5.0"));
+}
+
+#[test]
 fn test_version_parsing() {
     // Test that the binary can be executed without errors
     let output = pv_cmd()
@@ -295,4 +304,51 @@ fn test_quiet_mode_suppresses_numeric_output() {
         .success()
         .stdout(test_data)
         .stderr(""); // Should have no stderr output even with -n
+}
+
+#[test]
+fn test_verbose_flag() {
+    let test_data = "x".repeat(2048);
+    let test_file = create_test_file(&test_data);
+
+    let output = pv_cmd()
+        .arg("-v")
+        .arg("-q")
+        .arg(test_file.path())
+        .assert()
+        .success();
+
+    // -v should print a summary line to stderr even with -q
+    let stderr = String::from_utf8(output.get_output().stderr.to_vec()).unwrap();
+    assert!(
+        stderr.contains("copied"),
+        "Expected 'copied' in stderr, got: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("s"),
+        "Expected time in stderr, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_verbose_flag_line_mode() {
+    let test_data = "line1\nline2\nline3\nline4\nline5\n";
+    let test_file = create_test_file(test_data);
+
+    let output = pv_cmd()
+        .arg("-v")
+        .arg("-l")
+        .arg("-q")
+        .arg(test_file.path())
+        .assert()
+        .success();
+
+    let stderr = String::from_utf8(output.get_output().stderr.to_vec()).unwrap();
+    assert!(
+        stderr.contains("lines copied"),
+        "Expected 'lines copied' in stderr, got: {}",
+        stderr
+    );
 }
