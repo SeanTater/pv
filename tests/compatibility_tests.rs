@@ -213,7 +213,10 @@ fn upstream_version_short_flag_and_zero_defaults() {
     pv().arg("-V")
         .assert()
         .success()
-        .stdout(predicate::str::contains("pv 0.5.0"));
+        .stdout(predicate::str::contains(format!(
+            "pv {}",
+            env!("CARGO_PKG_VERSION")
+        )));
     pv().args(["-q", "-i", "0", "-m", "0", "-B", "0"])
         .write_stdin("abc")
         .assert()
