@@ -1,72 +1,33 @@
-# Performance Benchmarks
+# Performance comparison
 
-This directory contains scripts and results for benchmarking the Rust `pv` implementation against the original system `pv`.
-
-## Running Benchmarks
-
-### Prerequisites
-
-1. **System pv**: Install the original pv utility
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get install pv
-   
-   # RHEL/CentOS/Fedora
-   sudo yum install pv
-   # or
-   sudo dnf install pv
-   
-   # macOS
-   brew install pv
-   ```
-
-2. **hyperfine**: Install the benchmarking tool
-   ```bash
-   # Via cargo
-   cargo install hyperfine
-   
-   # Via package manager (Ubuntu/Debian)
-   wget https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
-   sudo dpkg -i hyperfine_1.18.0_amd64.deb
-   ```
-
-3. **Build Rust pv**: Ensure the release build exists
-   ```bash
-   cargo build --release
-   ```
-
-### Running the Benchmark Suite
+Run on Unix with Python 3.11+, Rust, and an explicit upstream pv 1.12.0 binary:
 
 ```bash
-# Run all benchmarks and save results
-./benchmarks/run_benchmarks.sh benchmarks/results.md
-
-# View results
-cat benchmarks/results.md
+./benchmarks/run_benchmarks.sh --reference /usr/bin/pv --runs 7 --size-mib 256 --output benchmarks/results.json
 ```
 
-## Benchmark Categories
+The wrapper builds a locked release binary. The harness rejects identical binaries and other upstream versions. It compares default transfers and forced buffered transfers (`-C`) for both implementations.
 
-The benchmark suite tests the following scenarios:
+Each case verifies payload hashes outside timed runs, warms up each variant, and randomizes variant order across repetitions. Numeric output also checks the final byte count. JSON records individual wall times, medians, ranges, child CPU time, hardware, binary hashes, and checkout identity. Only a report with `complete: true` represents a finished suite.
 
-1. **Basic Throughput**: Raw data transfer performance with various file sizes (1MB, 10MB, 100MB, 1GB)
-2. **Progress Display Overhead**: Performance impact of visual progress indicators
-3. **Rate Limiting**: Accuracy and overhead of bandwidth throttling
-4. **Line Counting Mode**: Text processing performance
-5. **Custom Format Strings**: Format parsing efficiency
+The nine cases cover file to null, pipe to pipe, file to file, line counting with an explicit total, forced progress display, numeric output, custom formatting, rate limiting, and a slow consumer. Most use 256 MiB; throttling uses 64 MiB at 64 MiB/s and the slow consumer uses 4 MiB. A 120-second watchdog bounds each invocation. Rate checks allow upstream's initial burst; finishing faster under a rate cap is not a throughput win.
 
-## Interpreting Results
+## Local results, 2026-09-30
 
-- **Mean Time**: Average execution time across multiple runs
-- **Relative Performance**: How much faster/slower compared to the other implementation
-- **Standard Deviation**: Consistency of performance across runs
+Linux x86_64, Intel i7-12700H, warm cache, seven measured runs. Default-mode medians from [the complete raw report](results-2026-09-30.json):
 
-## Contributing Benchmark Results
+| Case | Rust milliseconds | Upstream milliseconds | Upstream time / Rust time |
+| --- | ---: | ---: | ---: |
+| File to null | 8.63 | 6.17 | 0.715 |
+| Pipe to pipe | 9.67 | 6.66 | 0.689 |
+| File to file | 61.77 | 62.83 | 1.017 |
+| Line counting | 34.33 | 169.51 | 4.938 |
+| Forced display | 8.49 | 6.32 | 0.745 |
+| Numeric | 7.87 | 7.20 | 0.915 |
+| Custom format | 8.46 | 7.35 | 0.869 |
+| Rate limited | 1003.45 | 1009.92 | 1.006 |
+| Slow consumer | 614.28 | 637.85 | 1.038 |
 
-If you run benchmarks on different systems, please consider contributing results:
+A ratio above one favors Rust. Line counting is substantially faster here; upstream remains faster for pipes and several short transfer/display cases. File-copy and consumer-limited differences are small and should not be treated as established wins. These are one-machine warm-cache measurements, not disk durability or cold-cache results. Small timing differences include process startup and scheduling noise. Inspect individual samples and buffered variants before drawing conclusions.
 
-1. Run the benchmark suite: `./benchmarks/run_benchmarks.sh`
-2. Include system information (CPU, memory, OS)
-3. Submit results via issue or pull request
-
-This helps build a comprehensive performance picture across different hardware configurations.
+`sample_results.md` contains historical results from the previous harness and is not evidence for the current implementation. Differential correctness tests use `PV_REFERENCE=/path/to/pv-1.12.0 cargo test --locked --test compatibility_tests`; CI builds a checksum-pinned upstream source archive.

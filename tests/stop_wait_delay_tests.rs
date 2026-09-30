@@ -51,6 +51,7 @@ fn test_stop_at_size_basic() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("100") // Stop after 100 bytes
         .arg("-q") // Quiet mode
         .arg(test_file.path())
@@ -72,6 +73,7 @@ fn test_stop_at_size_exact_match() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("9") // Exact size of test data
         .arg("-q")
         .arg(test_file.path())
@@ -91,6 +93,7 @@ fn test_stop_at_size_larger_than_input() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("1000") // Much larger than input
         .arg("-q")
         .arg(test_file.path())
@@ -110,6 +113,7 @@ fn test_stop_at_size_zero() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("0") // Stop immediately
         .arg("-q")
         .arg(test_file.path())
@@ -129,6 +133,7 @@ fn test_stop_at_size_with_numeric() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("100")
         .arg("-n") // Numeric mode
         .arg("-b") // Show bytes
@@ -164,7 +169,7 @@ fn test_delay_start_basic() {
     let start = Instant::now();
     pv_cmd()
         .arg("-D")
-        .arg("0.1") // 100ms delay
+        .arg("2") // 100ms delay
         .arg("-q") // Quiet mode
         .write_stdin(test_data)
         .assert()
@@ -172,8 +177,8 @@ fn test_delay_start_basic() {
         .stdout(test_data);
 
     let elapsed = start.elapsed();
-    // Should take at least 100ms due to delay
-    assert!(elapsed.as_millis() >= 90); // Allow some tolerance
+    // Display delay must not slow down data transfer
+    assert!(elapsed.as_secs_f64() < 1.0);
 }
 
 #[test]
@@ -198,7 +203,7 @@ fn test_wait_and_delay_combined() {
     pv_cmd()
         .arg("-W") // Wait for first byte
         .arg("-D")
-        .arg("0.1") // Plus 100ms delay
+        .arg("2") // Plus 100ms delay
         .arg("-q")
         .write_stdin(test_data)
         .assert()
@@ -206,8 +211,8 @@ fn test_wait_and_delay_combined() {
         .stdout(test_data);
 
     let elapsed = start.elapsed();
-    // Should take at least 100ms due to delay
-    assert!(elapsed.as_millis() >= 90);
+    // Display delay must not slow down data transfer
+    assert!(elapsed.as_secs_f64() < 1.0);
 }
 
 #[test]
@@ -219,6 +224,7 @@ fn test_stop_at_size_with_multiple_files() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("7") // Stop after 7 bytes (covers file1 + 2 bytes of file2)
         .arg("-q")
         .arg(test_file1.path())
@@ -241,6 +247,7 @@ fn test_data_integrity_with_stop_at_size() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("20") // Stop after 20 bytes
         .arg("-q")
         .arg(test_file.path())
@@ -262,6 +269,7 @@ fn test_stop_at_size_line_mode() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("2") // Stop after 2 lines
         .arg("-l") // Line mode
         .arg("-q") // Quiet
@@ -273,11 +281,11 @@ fn test_stop_at_size_line_mode() {
         .clone();
 
     let output_str = String::from_utf8(output).unwrap();
-    // Should output at most 2 lines (or slightly more due to buffering)
+    // Stop exactly at the second delimiter.
     let lines: Vec<&str> = output_str.lines().collect();
     assert!(
-        lines.len() <= 3,
-        "Expected at most 3 lines (2 + buffer tolerance), got {}: '{}'",
+        lines.len() == 2,
+        "Expected exactly 2 lines, got {}: '{}'",
         lines.len(),
         output_str
     );
@@ -290,10 +298,11 @@ fn test_empty_input_with_features() {
 
     let output = pv_cmd()
         .arg("-S")
+        .arg("-s")
         .arg("100")
         .arg("-W")
         .arg("-D")
-        .arg("0.1")
+        .arg("2")
         .arg("-q")
         .arg(test_file.path())
         .assert()

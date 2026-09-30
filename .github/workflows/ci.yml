@@ -16,6 +16,7 @@ jobs:
     strategy:
       matrix:
         rust:
+          - "1.85.0"
           - stable
           - beta
           - nightly
@@ -134,3 +135,20 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+
+  upstream-compatibility:
+    name: Compatibility with pv 1.12.0
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Build pinned upstream reference
+      run: |
+        curl --fail --location --retry 3 https://ivarch.com/s/pv-1.12.0.tar.gz --output "$RUNNER_TEMP/pv-reference.tar.gz"
+        printf '%s  %s\n' '31fdbdb449c7143cd2968567bef7599e9f031950e6158ee7bb76e40aebf6ffb8' "$RUNNER_TEMP/pv-reference.tar.gz" | sha256sum --check
+        tar -xzf "$RUNNER_TEMP/pv-reference.tar.gz" -C "$RUNNER_TEMP"
+        cd "$RUNNER_TEMP/pv-1.12.0"
+        ./configure
+        make -j2
+    - name: Compare behavioral contracts
+      run: PV_REFERENCE="$RUNNER_TEMP/pv-1.12.0/pv" cargo test --locked --test compatibility_tests
