@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::io::Write;
-use std::time::Instant;
+use std::time::Duration;
 use tempfile::NamedTempFile;
 
 /// Helper function to create a test binary command
@@ -166,19 +166,15 @@ fn test_wait_for_first_byte_basic() {
 fn test_delay_start_basic() {
     let test_data = "test data";
 
-    let start = Instant::now();
     pv_cmd()
         .arg("-D")
-        .arg("2") // 100ms delay
+        .arg("3600") // Display delay must not block transfer
         .arg("-q") // Quiet mode
+        .timeout(Duration::from_secs(30))
         .write_stdin(test_data)
         .assert()
         .success()
         .stdout(test_data);
-
-    let elapsed = start.elapsed();
-    // Display delay must not slow down data transfer
-    assert!(elapsed.as_secs_f64() < 1.0);
 }
 
 #[test]
@@ -199,20 +195,16 @@ fn test_delay_start_zero() {
 fn test_wait_and_delay_combined() {
     let test_data = "test data";
 
-    let start = Instant::now();
     pv_cmd()
         .arg("-W") // Wait for first byte
         .arg("-D")
-        .arg("2") // Plus 100ms delay
+        .arg("3600") // Display delay must not block transfer
         .arg("-q")
+        .timeout(Duration::from_secs(30))
         .write_stdin(test_data)
         .assert()
         .success()
         .stdout(test_data);
-
-    let elapsed = start.elapsed();
-    // Display delay must not slow down data transfer
-    assert!(elapsed.as_secs_f64() < 1.0);
 }
 
 #[test]

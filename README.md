@@ -1,18 +1,97 @@
 # Pipe viewer in Rust
 
-`pv` monitors and controls data flowing through files and Unix pipelines:
+`pv` monitors and controls data flowing through files and pipelines.
+
+## Installation
+
+Download a prebuilt binary for your platform. No Rust toolchain is required.
+All downloads below use the [latest release](https://github.com/SeanTater/pv/releases/latest),
+which also provides `SHA256SUMS` for verifying downloads.
+
+### Windows (x86_64)
+
+Run in PowerShell to download `pv.exe` into the current folder and check it:
+
+```powershell
+Invoke-WebRequest https://github.com/SeanTater/pv/releases/latest/download/pv-windows-x86_64.exe -OutFile pv.exe
+.\pv.exe --version
+```
+
+To run `pv` from any folder, move `pv.exe` into a folder on your user `PATH`,
+or add its folder to `PATH` in Windows Environment Variables and open a new terminal.
+You can also [download the executable directly](https://github.com/SeanTater/pv/releases/latest/download/pv-windows-x86_64.exe)
+and rename it to `pv.exe`.
+
+### macOS
+
+Choose the command for your Mac, then install the downloaded binary.
+
+Apple Silicon (M-series):
+
+```sh
+curl -fL -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-macos-arm64-binary
+```
+
+Intel:
+
+```sh
+curl -fL -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-macos-x86_64-binary
+```
+
+For either Mac:
+
+```sh
+chmod +x pv
+sudo mkdir -p /usr/local/bin
+sudo mv pv /usr/local/bin/pv
+pv --version
+```
+
+### Linux
+
+Choose the command matching your architecture (`uname -m`), then install the
+static binary.
+
+x86_64:
+
+```sh
+curl -fL -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-linux-x86_64-binary
+```
+
+ARM64 (`aarch64`):
+
+```sh
+curl -fL -o pv https://github.com/SeanTater/pv/releases/latest/download/pv-linux-arm64-binary
+```
+
+For either architecture:
+
+```sh
+chmod +x pv
+sudo mkdir -p /usr/local/bin
+sudo mv pv /usr/local/bin/pv
+pv --version
+```
+
+A Flatpak bundle is also available on the [releases page](https://github.com/SeanTater/pv/releases/latest).
+
+### Install with Cargo (all platforms)
+
+With Rust **1.85 or newer** installed:
+
+```sh
+cargo install pv --locked
+pv --version
+```
+
+To install from a local source checkout, use `cargo install --path . --locked`.
+
+## Usage
 
 ```sh
 pv archive.tar | gzip > archive.tar.gz
 pv --rate-limit 10M image.iso > /dev/null
 producer | pv --numeric --bytes > output.bin
-```
-
-Build with Rust **1.85 or newer**:
-
-```sh
-cargo build --release --locked
-./target/release/pv --help
 ```
 
 The original Pipe Viewer is the behavioral reference, currently pinned to
@@ -100,18 +179,10 @@ Comparisons cover quiet copying, forced display, numeric/custom formats, line
 counting, throttling and slow consumers. Performance wins are workload-specific;
 this project does not claim it universally beats upstream.
 
-## Installation and packaging
+## Packaging
 
-```sh
-cargo install --path . --locked
-# Or install the published version (which may predate this checkout):
-cargo install pv
-```
-
-Prebuilt packages are available through the project's
-[releases](https://github.com/SeanTater/pv/releases). Linux kernel acceleration,
-direct I/O and `/proc` watching are platform-specific; ordinary buffered transfer
-remains portable.
+Linux kernel acceleration, direct I/O and `/proc` watching are platform-specific;
+ordinary buffered transfer remains portable.
 
 After changing dependencies, regenerate Flatpak's offline crate source list:
 
