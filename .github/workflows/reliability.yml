@@ -1,0 +1,71 @@
+name: Sustained reliability
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+  schedule:
+    - cron: '19 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  memory-soak:
+    name: Sustained payload and memory
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Check monitoring policies
+      run: python3 -m unittest discover -s benchmarks/tests
+    - run: cargo build --locked --release
+    - name: Sustain transfers and bound RSS growth
+      env:
+        SOAK_SECONDS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '180' || '12' }}
+      run: python3 benchmarks/soak.py --binary target/release/pv --duration "$SOAK_SECONDS" --output soak.json
+    - name: Preserve measurements
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sustained-memory
+        path: soak.json
+        if-no-files-found: warn
+
+  performance-regression:
+    name: Paired performance regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: candidate
+    - uses: actions/checkout@v4
+      with:
+        # PRs compare their merge result with the base revision; pushes compare
+        # the prior main revision. Scheduled runs retain a stable release anchor.
+        ref: ${{ github.event.pull_request.base.sha || github.event.before || 'v0.6.0' }}
+        path: baseline
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Build both revisions
+      run: |
+        cargo build --locked --release --manifest-path candidate/Cargo.toml --target-dir candidate/target
+        cargo build --locked --release --manifest-path baseline/Cargo.toml --target-dir baseline/target
+    - name: Compare paired samples and confirm regressions
+      run: python3 candidate/benchmarks/regression.py --candidate candidate/target/release/pv --baseline baseline/target/release/pv --runs 7 --size-mib 64 --output regression.json
+    - name: Preserve paired samples
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: paired-performance
+        path: regression.json
+        if-no-files-found: warn

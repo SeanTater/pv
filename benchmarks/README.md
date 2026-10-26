@@ -31,3 +31,10 @@ Linux x86_64, Intel i7-12700H, warm cache, seven measured runs. Default-mode med
 A ratio above one favors Rust. Line counting is substantially faster here; upstream remains faster for pipes and several short transfer/display cases. File-copy and consumer-limited differences are small and should not be treated as established wins. These are one-machine warm-cache measurements, not disk durability or cold-cache results. Small timing differences include process startup and scheduling noise. Inspect individual samples and buffered variants before drawing conclusions.
 
 `sample_results.md` contains historical results from the previous harness and is not evidence for the current implementation. Differential correctness tests use `PV_REFERENCE=/path/to/pv-1.12.0 cargo test --locked --test compatibility_tests`; CI builds a checksum-pinned upstream source archive.
+
+## Continuous regression and memory monitoring
+
+See [TESTING.md](../TESTING.md#sustained-memory-and-performance-checks) for the
+same-runner revision gate, nightly sustained memory checks, conservative failure
+criteria, and retained JSON artifacts. `regression.py` compares two Rust revisions;
+`compare.py` remains the separate pinned-upstream performance investigation tool.
