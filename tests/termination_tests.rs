@@ -189,7 +189,7 @@ fn cancelling_monitor_reaps_its_command_group() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let child = Running(command.spawn().unwrap());
-    wait_until(|| ready.exists());
+    wait_until(|| fs::read_to_string(&ready).is_ok_and(|text| text.trim().parse::<i32>().is_ok()));
     let pid: i32 = fs::read_to_string(ready).unwrap().trim().parse().unwrap();
     let output = terminate(child, libc::SIGTERM);
     assert!(output.stdout.is_empty());
@@ -224,7 +224,20 @@ fn cancellation_releases_its_cursor_registry_row() {
         },
         0
     );
-    let _master = unsafe { File::from_raw_fd(master) };
+    let mut master = unsafe { File::from_raw_fd(master) };
+    // Keep draining the PTY even if this test thread is descheduled. Progress
+    // must not fill the terminal buffer and turn a cleanup test into a stall.
+    let collector = std::thread::spawn(move || {
+        let mut buffer = [0; 4096];
+        loop {
+            match master.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break, // Linux PTYs report EIO when the slave closes.
+            }
+        }
+    });
     let slave = unsafe { File::from_raw_fd(slave) };
     let mut child = Running(
         Command::new(assert_cmd::cargo::cargo_bin("pv"))
@@ -254,6 +267,7 @@ fn cancellation_releases_its_cursor_registry_row() {
     assert_eq!(child.0.wait().unwrap().code(), Some(143));
     assert_eq!(fs::read_to_string(registry().unwrap()).unwrap(), "");
     assert_eq!(fs::read_dir(ipc).unwrap().count(), 1, "IPC socket leaked");
+    collector.join().unwrap();
 }
 
 #[test]
