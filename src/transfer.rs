@@ -9,6 +9,23 @@ use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::time::{Duration, Instant};
 
+// Windows file attributes alone do not reliably distinguish redirected pipe
+// handles from disk files. Seeking/sparse/sync operations require FILE_TYPE_DISK.
+fn regular_file(file: &File) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetFileType(handle: *mut std::ffi::c_void) -> u32;
+        }
+        if unsafe { GetFileType(file.as_raw_handle()) } != 1 {
+            return false;
+        }
+    }
+    file.metadata().is_ok_and(|metadata| metadata.is_file())
+}
+
 pub enum Input {
     File(File),
     #[cfg(not(unix))]
@@ -47,7 +64,7 @@ impl Input {
     }
     pub fn regular(&self) -> bool {
         match self {
-            Self::File(f) => f.metadata().is_ok_and(|m| m.is_file()),
+            Self::File(f) => regular_file(f),
             #[cfg(not(unix))]
             Self::Stdin(_) => false,
         }
@@ -94,6 +111,7 @@ impl Input {
         }
     }
     fn skip_error(&mut self, block: u64, remaining: Option<u64>) -> io::Result<usize> {
+        let regular = self.regular();
         let f = match self {
             Self::File(f) => f,
             #[cfg(not(unix))]
@@ -103,7 +121,7 @@ impl Input {
                 ))
             }
         };
-        if !f.metadata()?.is_file() {
+        if !regular {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::FileTypeExt;
@@ -123,7 +141,7 @@ impl Input {
         let pos = f.stream_position()?;
         let skip = block - pos % block;
         let mut skip = skip.min(remaining.unwrap_or(u64::MAX));
-        if f.metadata()?.is_file() {
+        if regular {
             skip = skip.min(f.metadata()?.len().saturating_sub(pos));
         }
         f.seek(SeekFrom::Current(
@@ -207,7 +225,7 @@ impl Output {
     }
     pub fn regular(&self) -> bool {
         match self {
-            Self::File(f) => f.metadata().is_ok_and(|m| m.is_file()),
+            Self::File(f) => regular_file(f),
             #[cfg(not(unix))]
             _ => false,
         }

@@ -207,8 +207,8 @@ mod windows {
                 unsafe {
                     WaitForSingleObject(event.as_raw_handle(), u32::MAX);
                 }
-                if debug {
-                    eprintln!("pv: debug: console cancellation worker woke");
+                if debug && !stop.load(Ordering::Relaxed) {
+                    eprintln!("pv: debug: console cancellation requested");
                 }
                 let mut first = true;
                 let mut success_reported = false;
@@ -217,10 +217,14 @@ mod windows {
                 while !stop.load(Ordering::Relaxed) {
                     let result = unsafe { CancelSynchronousIo(thread.as_raw_handle()) };
                     if debug && (first || (result != 0 && !success_reported)) {
-                        eprintln!(
-                            "pv: debug: CancelSynchronousIo result={result}, error={}",
-                            io::Error::last_os_error()
-                        );
+                        if result == 0 {
+                            eprintln!(
+                                "pv: debug: CancelSynchronousIo pending lookup: {}",
+                                io::Error::last_os_error()
+                            );
+                        } else {
+                            eprintln!("pv: debug: synchronous I/O cancellation requested");
+                        }
                     }
                     first = false;
                     success_reported |= result != 0;
