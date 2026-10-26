@@ -74,14 +74,23 @@ jobs:
       uses: baptiste0928/cargo-install@v3
       with:
         crate: cargo-tarpaulin
+        version: 0.37.5
 
     - name: Generate coverage report
-      run: cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
+      run: cargo tarpaulin --engine llvm --all-features --workspace --timeout 120 --fail-under 80 --out Xml --out Json --output-dir coverage
+
+    - name: Preserve coverage reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-linux
+        path: coverage/
+        if-no-files-found: warn
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v4
       with:
-        file: ./cobertura.xml
+        files: ./coverage/cobertura.xml
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
