@@ -77,7 +77,7 @@ jobs:
         version: 0.37.5
 
     - name: Generate coverage report
-      run: cargo tarpaulin --engine llvm --all-features --workspace --timeout 120 --fail-under 80 --out Xml --out Json --output-dir coverage
+      run: cargo tarpaulin --engine llvm --all-features --workspace --timeout 120 --fail-under 90 --out Xml --out Json --output-dir coverage
 
     - name: Preserve coverage reports
       if: always()
@@ -181,3 +181,18 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y groff
         groff -man -Tutf8 -ww docs/pv.1 > /dev/null
+
+  linux-32-bit:
+    name: Linux 32-bit reliability
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: i686-unknown-linux-gnu
+    - name: Install 32-bit linker and C runtime
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-multilib
+    - name: Run native 32-bit reliability and resource tests
+      run: cargo test --locked --target i686-unknown-linux-gnu --test reliability_tests --test resource_limits
