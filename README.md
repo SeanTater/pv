@@ -174,6 +174,9 @@ separate modules under `src/`. Add behavioral regressions before implementation;
 use injected I/O faults and supplied time samples for deterministic checks, and
 subprocess/pseudo-terminal tests for OS behavior.
 
+See [the testing guide](TESTING.md) for coverage collection, reliability contracts,
+platform exclusions, and remaining gaps.
+
 ## Performance
 
 The copy engine uses Linux kernel-assisted transfers where possible, falling back

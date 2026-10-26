@@ -23,3 +23,8 @@ flatpak-build/
 
 # Python benchmark bytecode
 __pycache__/
+
+# Coverage reports and instrumentation
+/coverage/
+*.profraw
+*.profdata
