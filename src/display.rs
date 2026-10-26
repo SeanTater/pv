@@ -973,3 +973,172 @@ mod rate_tests {
         assert!(r.samples.len() <= 3);
     }
 }
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use clap::Parser;
+
+    fn config(args: &[&str]) -> Config {
+        let mut config = Config::parse_from(std::iter::once("pv").chain(args.iter().copied()));
+        config.buffer = 128 * 1024;
+        config
+    }
+
+    #[test]
+    fn remote_updates_change_explicit_fields_without_resetting_unrelated_state() {
+        let mut original = config(&["-N", "before", "-l", "-q"]);
+        original.limit = 100;
+        original.buffer = 4096;
+        original.total = Some(200);
+        let mut display = Display::new(original);
+        display.record(6, 1, Some(b"hello\n"));
+        let mut update = config(&[
+            "-N",
+            "after",
+            "-F",
+            "%N:%b:%3A:%L",
+            "-i",
+            "0.5",
+            "-m",
+            "7",
+            "-w",
+            "40",
+            "-H",
+            "12",
+            "-p",
+            "-t",
+            "-e",
+            "-I",
+            "-r",
+            "-a",
+            "-b",
+            "-T",
+            "-A",
+            "8",
+        ]);
+        update.limit = 300;
+        update.total = Some(400);
+        update.updates = [
+            "rate_limit",
+            "size",
+            "name",
+            "format",
+            "interval",
+            "average_rate_window",
+            "width",
+            "height",
+            "progress",
+            "timer",
+            "eta",
+            "fineta",
+            "rate",
+            "average_rate",
+            "bytes",
+            "buffer_percent",
+            "last_written",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        display.update(update);
+        // Prior counters and unrequested behavior survive; the new format
+        // begins inspecting subsequent data without fabricating old history.
+        assert_eq!((display.bytes, display.units), (6, 1));
+        assert!(display.config.quiet && display.config.line_mode);
+        assert_eq!(display.config.buffer, 4096);
+        display.record(6, 1, Some(b"world\n"));
+        assert!(display.render().starts_with("after:2:ld.:world"));
+        assert_eq!(
+            (display.config.limit, display.config.total),
+            (300, Some(400))
+        );
+        assert_eq!(
+            (display.config.width, display.config.height),
+            (Some(40), Some(12))
+        );
+        assert_eq!(display.config.interval, 0.5);
+        assert_eq!(display.config.average_rate_window, 7);
+        assert!(display.config.no_splice);
+        assert!(
+            display.config.progress
+                && display.config.timer
+                && display.config.eta
+                && display.config.fineta
+        );
+        assert!(
+            display.config.rate
+                && display.config.average_rate
+                && display.config.bytes
+                && display.config.buffer_percent
+        );
+    }
+
+    #[test]
+    fn remote_defaults_invalid_values_and_unknown_fields_do_not_reset_a_transfer() {
+        let mut display = Display::new(config(&["-N", "keep", "-i", "2", "-m", "10", "-A", "4"]));
+        display.update(config(&[]));
+        assert_eq!(display.config.name.as_deref(), Some("keep"));
+        let mut update = config(&[]);
+        update.interval = f64::INFINITY;
+        update.average_rate_window = 0;
+        update.last_written = Some(2 * 1024 * 1024);
+        update.updates = ["interval", "average_rate_window", "last_written", "unknown"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        display.update(update);
+        assert_eq!(display.config.interval, 2.0);
+        assert_eq!(display.config.average_rate_window, 10);
+        assert_eq!(display.config.last_written, Some(4));
+    }
+
+    #[test]
+    fn formatted_fields_report_known_counters_and_actual_buffer_occupancy() {
+        let mut c = config(&[
+            "-N",
+            "copy",
+            "-F",
+            "%N|%b|%T|%4A|%L|%{ratio}|%{progress-amount-only}|%{progress-bar-only}|%e|%I",
+        ]);
+        c.total = Some(100);
+        let mut display = Display::new(c);
+        display.record(25, 25, Some(b"old line\ncurrent\n"));
+        display.buffer_used = display.config.buffer / 2;
+        display.rates.average = 5.0;
+        let rendered = display.render();
+        assert!(
+            rendered.starts_with("copy|25B|50|ent.|current|25/100|25|["),
+            "{rendered}"
+        );
+        assert!(rendered.contains("ETA 0:00:15"));
+        assert!(rendered.contains("FIN "));
+        display.method = "splice";
+        assert_eq!(display.token(&FormatToken::BufferPercent), "splice");
+    }
+
+    #[test]
+    fn rate_gauge_tracks_observed_maximum_and_respects_bar_style() {
+        let mut display = Display::new(config(&["-g"]));
+        display.rates.maximum = 100.0;
+        display.rates.current = 50.0;
+        for (style, expected) in [
+            ("plain", "[==  ]"),
+            ("block", "[██  ]"),
+            ("granular", "[▰▰▱▱]"),
+            ("shaded", "[▓▓░░]"),
+        ] {
+            display.config.bar_style = style.into();
+            assert_eq!(display.bar(Some(4)), expected);
+        }
+    }
+
+    #[test]
+    fn numeric_formats_do_not_emit_terminal_only_fields() {
+        let mut c = config(&["-n", "-F", "%b|%p|%{progress-bar-only}|%e|%I"]);
+        c.total = Some(100);
+        let mut display = Display::new(c);
+        display.record(25, 25, None);
+        assert_eq!(display.render(), "25|25|||");
+    }
+}

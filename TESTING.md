@@ -38,7 +38,7 @@ Short transfer tests use generous watchdogs rather than asserting startup latenc
 Install cargo-tarpaulin and run the same LLVM-based collection used in CI:
 
 ```sh
-cargo tarpaulin --engine llvm --all-features --workspace --timeout 120 --fail-under 80 --out Xml --out Json --output-dir coverage
+cargo tarpaulin --engine llvm --all-features --workspace --timeout 120 --fail-under 90 --out Xml --out Json --output-dir coverage
 ```
 
 The LLVM backend instruments the `pv` subprocesses launched by `assert_cmd` as
@@ -46,21 +46,34 @@ well as the test harnesses. The previous default ptrace run without `--follow-ex
 reported only 11.49% and missed most integration-exercised code. LLVM also avoids
 ptrace's substantial timing overhead in child-process and terminal tests.
 
-On Linux x86_64, this branch measured **82.64% line coverage (1223/1480)** with
-all 239 tests passing and no external upstream reference configured. This is a
-baseline, not a claim of the issue's >90% target. Source/region mapping differs
+On Linux x86_64, this branch measured **91.19% line coverage (1418/1555)** with
+all 245 tests passing and no external upstream reference configured. The preceding merged baseline was 83.47% (1298/1555); the expanded suite exceeds
+the issue's >90% goal. Source/region mapping differs
 between backends, so the old 11.49% is not an apples-to-apples improvement measure.
-CI enforces an 80% floor and preserves XML/JSON reports as the `coverage-linux`
+CI enforces a 90% floor and preserves XML/JSON reports as the `coverage-linux`
 artifact; Codecov receives the XML report. Inspect uncovered lines before raising
 the floor; do not exclude failure paths to reach a percentage.
 
 Coverage is a Linux measurement; native Windows/macOS CI runs verify their own
-code paths but do not contribute to this report. This suite does not establish
-32-bit correctness merely by testing a 64-bit process beyond a 4 GiB file offset.
-Remaining work for #24 includes >90% measured coverage, long-transfer memory/leak
-measurements, controlled allocation/resource exhaustion, a 32-bit execution job,
-and signal-termination cleanup tests. Normal error unwinding and EOF cleanup are
-covered; uncatchable termination does not run Rust destructors.
+code paths but do not contribute to this report. The Linux 32-bit reliability job
+installs the i686 target and multilib runtime and actually executes the reliability
+and resource-limit suites, including the positioned-input test beyond 4 GiB.
+
+`resource_limits` applies limits only in spawned Linux children. It checks a
+256 MiB stream under a 64 MiB address-space cap, a transfer buffer that cannot fit,
+and an eight-descriptor open-file cap. Output collection runs concurrently and
+children have a 30-second watchdog. These are bounded-memory/resource-pressure
+contracts, not proof against every allocator failure or an indefinite leak soak.
+
+Additional tests cover explicit-only remote updates, invalid remote defaults,
+numeric/terminal formatting, buffer recovery bounds and non-seekable rejection,
+direct-I/O flag restoration on failure, nested directory size references, sparse
+and synchronized output, monitor errors and descriptor-watch validation. No
+production lines are excluded to reach the threshold.
+
+Remaining work for #24 includes sustained-duration memory/leak profiling and
+continuous performance monitoring. Signal-termination cleanup is handled by the
+companion work for #28; SIGKILL cannot run Rust destructors.
 
 ## Performance
 

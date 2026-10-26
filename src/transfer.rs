@@ -999,3 +999,72 @@ mod fault_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod recovery_contracts {
+    use super::*;
+
+    #[test]
+    fn seekable_recovery_rounds_to_block_and_never_skips_past_eof_or_stop_size() {
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"0123456789").unwrap();
+        file.seek(SeekFrom::Start(3)).unwrap();
+        let mut input = Input::File(file);
+        assert_eq!(input.skip_error(4, None).unwrap(), 1);
+        assert_eq!(input.skip_error(8, Some(2)).unwrap(), 2);
+        assert_eq!(input.skip_error(8, None).unwrap(), 2);
+        assert_eq!(input.skip_error(8, None).unwrap(), 2);
+        assert_eq!(input.skip_error(8, None).unwrap(), 0);
+        let mut tail = [0; 1];
+        assert_eq!(input.read(&mut tail).unwrap(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_recovery_rejects_non_seekable_streams_instead_of_fabricating_data() {
+        use std::os::fd::OwnedFd;
+        use std::os::unix::net::UnixStream;
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let mut input = Input::File(File::from(OwnedFd::from(socket)));
+        let error = input.skip_error(1, None).unwrap_err();
+        assert!(error.to_string().contains("non-seekable"));
+    }
+
+    #[test]
+    fn aligned_transfer_storage_is_initialized_and_rejects_overflow() {
+        for size in [1, 4096, 4097] {
+            let mut buffer = AlignedBuffer::new(size).unwrap();
+            let bytes = buffer.slice();
+            assert!(bytes.len() >= size);
+            assert_eq!(bytes.as_ptr() as usize % 4096, 0);
+            assert!(bytes.iter().all(|&byte| byte == 0));
+            bytes[size - 1] = 42;
+        }
+        assert!(AlignedBuffer::new(usize::MAX).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn direct_tail_restores_descriptor_flags_even_when_the_operation_fails() {
+        let file = tempfile::tempfile().unwrap();
+        let fd = file.as_raw_fd();
+        let before = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        {
+            let _guard = DirectGuard::enable(fd).unwrap();
+            let direct = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            let error = direct_tail(fd, std::ptr::null(), 1, || -> io::Result<()> {
+                assert_eq!(
+                    unsafe { libc::fcntl(fd, libc::F_GETFL) } & libc::O_DIRECT,
+                    0
+                );
+                Err(io::Error::other("injected tail I/O failure"))
+            })
+            .unwrap_err();
+            assert!(error.to_string().contains("injected"));
+            assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFL) }, direct);
+        }
+        assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFL) }, before);
+        assert!(DirectGuard::enable(-1).is_err());
+        assert!(direct_tail(-1, std::ptr::null(), 1, || Ok(())).is_err());
+    }
+}
