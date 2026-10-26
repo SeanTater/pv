@@ -75,6 +75,7 @@ fn console_scenarios() {
     }
     // A custom handler is not inherited, unlike the process ignore attribute.
     // Ctrl-C broadcasts only inside this helper's private console.
+    assert_ne!(unsafe { SetConsoleCtrlHandler(None, 0) }, 0);
     assert_ne!(unsafe { SetConsoleCtrlHandler(Some(ignore), 1) }, 0);
     for case in ["input", "staging", "throttle", "output"] {
         let dir = TempDir::new().unwrap();
