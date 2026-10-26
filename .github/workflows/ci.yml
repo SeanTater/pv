@@ -179,8 +179,10 @@ jobs:
         python3 -m unittest discover -s scripts/tests
     - name: Render man page
       run: |
-        sudo apt-get update
-        sudo apt-get install -y groff
+        if ! command -v groff >/dev/null 2>&1; then
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y groff
+        fi
         groff -man -Tutf8 -ww docs/pv.1 > /dev/null
 
   linux-32-bit:
