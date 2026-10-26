@@ -386,6 +386,7 @@ impl Throttle {
         if display.config.limit == 0 {
             return Ok(());
         }
+        let trace_start = display.trace.start();
         let initial_rate = display.config.limit;
         while display.config.limit > 0 {
             // A remote update can release a throttled transfer immediately.
@@ -402,6 +403,14 @@ impl Throttle {
             std::thread::sleep(Duration::from_secs_f64(remaining.clamp(0.0, 0.05)));
             display.tick(false)?;
         }
+        display.trace.record(
+            "throttle",
+            trace_start,
+            amount,
+            display.bytes,
+            display.method,
+            None,
+        );
         Ok(())
     }
 }
@@ -471,6 +480,7 @@ pub fn buffered(
         {
             break;
         }
+        let trace_start = display.trace.start();
         #[cfg(target_os = "linux")]
         let read = if display.config.direct_io && input_regular {
             direct_tail(input.fd(), buffer.as_ptr(), max_read, || {
@@ -481,6 +491,14 @@ pub fn buffered(
         };
         #[cfg(not(target_os = "linux"))]
         let read = read_retry(input, &mut buffer[..max_read]);
+        display.trace.record(
+            "read",
+            trace_start,
+            read.as_ref().copied().unwrap_or(0) as u64,
+            display.bytes,
+            display.method,
+            read.as_ref().err(),
+        );
         let n = match read {
             Ok(0) => break,
             Ok(n) => {
@@ -584,6 +602,7 @@ fn write_payload(
             } else {
                 left.len()
             };
+            let trace_start = display.trace.start();
             #[cfg(target_os = "linux")]
             let write = if display.config.direct_io && output.regular() {
                 direct_tail(output.fd().unwrap(), left.as_ptr(), max, || {
@@ -594,6 +613,14 @@ fn write_payload(
             };
             #[cfg(not(target_os = "linux"))]
             let write = write_retry(output, &left[..max]);
+            display.trace.record(
+                "write",
+                trace_start,
+                write.as_ref().copied().unwrap_or(0) as u64,
+                display.bytes,
+                display.method,
+                write.as_ref().err(),
+            );
             let n = match write {
                 Ok(0) => {
                     return Err(crate::error::io_failure(
@@ -694,6 +721,7 @@ pub fn kernel(
         }
         // Try the nonblocking splice first. Poll only on backpressure rather
         // than adding two poll syscalls to every successful pipe transfer.
+        let trace_start = display.trace.start();
         let result = if in_regular && out_regular {
             display.method = "copy_file_range";
             // SAFETY: live descriptors and null offset pointers use their current offsets.
@@ -724,8 +752,16 @@ pub fn kernel(
                 )
             }
         };
-        if result < 0 {
-            let e = io::Error::last_os_error();
+        let kernel_error = (result < 0).then(io::Error::last_os_error);
+        display.trace.record(
+            "kernel",
+            trace_start,
+            result.max(0) as u64,
+            display.bytes,
+            display.method,
+            kernel_error.as_ref(),
+        );
+        if let Some(e) = kernel_error {
             if e.kind() == ErrorKind::Interrupted {
                 continue;
             }
@@ -742,6 +778,14 @@ pub fn kernel(
                 e.raw_os_error(),
                 Some(libc::EINVAL | libc::ENOSYS | libc::EXDEV | libc::EOPNOTSUPP | libc::EBADF)
             ) {
+                display.trace.record(
+                    "fallback",
+                    display.trace.start(),
+                    0,
+                    display.bytes,
+                    display.method,
+                    Some(&e),
+                );
                 return Ok(false);
             }
             return Err(crate::error::io_failure(
@@ -763,6 +807,7 @@ pub fn kernel(
             let mut left = n;
             while left > 0 {
                 crate::signal::check()?;
+                let trace_start = display.trace.start();
                 let written = unsafe {
                     libc::splice(
                         read.as_raw_fd(),
@@ -773,8 +818,16 @@ pub fn kernel(
                         libc::SPLICE_F_MOVE,
                     )
                 };
-                if written < 0 {
-                    let e = io::Error::last_os_error();
+                let write_error = (written < 0).then(io::Error::last_os_error);
+                display.trace.record(
+                    "kernel-write",
+                    trace_start,
+                    written.max(0) as u64,
+                    display.bytes,
+                    display.method,
+                    write_error.as_ref(),
+                );
+                if let Some(e) = write_error {
                     if e.kind() == ErrorKind::Interrupted {
                         continue;
                     }
@@ -919,6 +972,10 @@ fn read_retry(reader: &mut impl Read, buffer: &mut [u8]) -> io::Result<usize> {
     loop {
         crate::signal::check()?;
         match reader.read(buffer) {
+            Err(_) if crate::signal::received().is_some() => {
+                crate::signal::check()?;
+                unreachable!()
+            }
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             result => return result,
         }
@@ -929,6 +986,10 @@ fn write_retry(writer: &mut impl Write, buffer: &[u8]) -> io::Result<usize> {
     loop {
         crate::signal::check()?;
         match writer.write(buffer) {
+            Err(_) if crate::signal::received().is_some() => {
+                crate::signal::check()?;
+                unreachable!()
+            }
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Ok(0) if !buffer.is_empty() => {
                 return Err(io::Error::new(

@@ -48,13 +48,17 @@ failures, and 64 for invalid options. Other failures may return 1. Monitor mode
 propagates the monitored command's exit status. On Unix, handled SIGINT, SIGTERM
 and SIGHUP cancel with status 128 plus the signal number and unwind temporary
 resources. A repeated signal forces immediate exit; SIGKILL cannot be cleaned up.
+Windows Ctrl-C and Ctrl-Break cancel with status 130 and release temporary staging
+files. Forced console closure/termination retains OS semantics.
 Inspect stderr for details.
 .SH ENVIRONMENT AND FILES
 There is no configuration file or PV_* option-default environment interface.
 The standard temporary directory is used for temporary store-and-forward files
 and private Unix IPC sockets. The IPC directory must be private and owned by the
 current user; ordinary copying remains possible when IPC is unavailable.
-TZ affects local completion-time formatting. Terminal capabilities affect display.
+TZ affects local completion-time formatting. Terminal capabilities affect display. PV_DEBUG=1 enables contextual diagnostics;
+PV_TRACE=1 emits payload-free per-operation profiling records on stderr.
+Use scripts/summarize_trace.py to aggregate a trace.
 A named store-and-forward file and a requested PID file remain on disk after exit.
 .SH COMPATIBILITY
 This is the Rust implementation, not the original Pipe Viewer. Upstream pv 1.12.0

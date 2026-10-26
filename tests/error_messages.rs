@@ -146,3 +146,45 @@ fn broken_pipe_explains_downstream_failure() {
     assert_eq!(output.status.code(), Some(16));
     assert!(String::from_utf8_lossy(&output.stderr).contains("downstream reader stopped"));
 }
+
+#[cfg(unix)]
+#[test]
+fn read_failures_identify_the_input_and_destination() {
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("input-directory");
+    let output = dir.path().join("output-file");
+    std::fs::create_dir(&input).unwrap();
+    pv().args(["-q", "-C"])
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .assert()
+        .code(8)
+        .stderr(
+            predicate::str::contains(input.to_str().unwrap())
+                .and(predicate::str::contains(output.to_str().unwrap()))
+                .and(predicate::str::contains("partial copy")),
+        );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn watch_list_errors_include_path_line_and_rejected_target() {
+    let dir = TempDir::new().unwrap();
+    let list = dir.path().join("watch-list");
+    pv().args(["-d", &format!("@{}", list.display())])
+        .assert()
+        .code(2)
+        .stderr(
+            predicate::str::contains(list.to_str().unwrap()).and(predicate::str::contains("help:")),
+        );
+    std::fs::write(&list, "\ninvalid-target\n").unwrap();
+    pv().args(["-d", &format!("@{}", list.display())])
+        .assert()
+        .code(64)
+        .stderr(
+            predicate::str::contains(list.to_str().unwrap())
+                .and(predicate::str::contains("line 2"))
+                .and(predicate::str::contains("invalid-target")),
+        );
+}
