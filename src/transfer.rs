@@ -22,7 +22,23 @@ impl Input {
             {
                 return duplicate(0).map(Self::File);
             }
-            #[cfg(not(unix))]
+            #[cfg(windows)]
+            {
+                use std::io::IsTerminal;
+                use std::os::windows::io::AsHandle;
+                let stdin = io::stdin();
+                if !stdin.is_terminal() {
+                    // Avoid Stdin's read-ahead: -S must leave subsequent bytes
+                    // on the shared redirected handle for the next consumer.
+                    return stdin
+                        .as_handle()
+                        .try_clone_to_owned()
+                        .map(File::from)
+                        .map(Self::File);
+                }
+                return Ok(Self::Stdin(stdin));
+            }
+            #[cfg(not(any(unix, windows)))]
             {
                 return Ok(Self::Stdin(io::stdin()));
             }
@@ -168,7 +184,23 @@ impl Output {
         {
             duplicate(1).map(Self::File)
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::io::IsTerminal;
+            use std::os::windows::io::AsHandle;
+            let stdout = io::stdout();
+            if !stdout.is_terminal() {
+                // A pipe viewer must forward partial records immediately,
+                // rather than retain them in Stdout's global line buffer.
+                return stdout
+                    .as_handle()
+                    .try_clone_to_owned()
+                    .map(File::from)
+                    .map(Self::File);
+            }
+            Ok(Self::Stdout(stdout))
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             Ok(Self::Stdout(io::stdout()))
         }
@@ -241,7 +273,11 @@ impl Write for Output {
         match self {
             Self::File(f) => f.write(b),
             #[cfg(not(unix))]
-            Self::Stdout(s) => s.write(b),
+            Self::Stdout(s) => {
+                let written = s.write(b)?;
+                s.flush()?;
+                Ok(written)
+            }
             #[cfg(not(unix))]
             Self::Discard => Ok(b.len()),
         }

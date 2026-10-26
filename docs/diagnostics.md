@@ -111,7 +111,9 @@ OS operation and cannot guarantee Rust-level cleanup.
 
 The Windows CI suite creates a private console and exercises real Ctrl-C and
 Ctrl-Break during stalled input, blocked output, throttling and temporary staging.
-Anonymous staging files close/delete before successful cooperative exit. The
+Anonymous staging files close/delete before successful cooperative exit. Redirected
+Windows streams use duplicated file handles, forwarding partial records without
+line buffering and avoiding read-ahead past `--stop-at-size`. The
 callback does not use Rust stdio or attempt cleanup itself.
 
 ## Error-reporting scope

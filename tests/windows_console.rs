@@ -171,6 +171,13 @@ fn console_scenarios() {
         if case == "output" {
             assert!(stdout.len() < 1024 * 1024);
         }
+        if case == "throttle" {
+            assert!(
+                !stdout.is_empty(),
+                "the first byte must be forwarded before EOF"
+            );
+            assert!(b"payload waiting for cancellation".starts_with(&stdout));
+        }
         // PID and the optional named input are the only persistent files.
         assert_eq!(
             std::fs::read_dir(dir.path()).unwrap().count(),
@@ -179,5 +186,39 @@ fn console_scenarios() {
     }
     unsafe {
         SetConsoleCtrlHandler(Some(ignore), 0);
+    }
+}
+
+#[test]
+fn bounded_redirected_input_does_not_consume_the_next_readers_bytes() {
+    for (flags, prefix, remainder) in [
+        (
+            vec!["-q", "-s", "3", "-S"],
+            b"abc".as_slice(),
+            b"def".as_slice(),
+        ),
+        (
+            vec!["-q", "-l", "-s", "1", "-S"],
+            b"abc\n".as_slice(),
+            b"def".as_slice(),
+        ),
+    ] {
+        let mut input = tempfile::NamedTempFile::new().unwrap();
+        input.write_all(&[prefix, remainder].concat()).unwrap();
+        let mut shared = std::fs::File::open(input.path()).unwrap();
+        let output = Command::new(assert_cmd::cargo::cargo_bin("pv"))
+            .args(flags)
+            .stdin(shared.try_clone().unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, prefix);
+        let mut left = Vec::new();
+        shared.read_to_end(&mut left).unwrap();
+        assert_eq!(left, remainder);
     }
 }
