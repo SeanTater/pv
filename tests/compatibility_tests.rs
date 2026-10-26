@@ -2,7 +2,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::io::Write;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tempfile::NamedTempFile;
 
 fn pv() -> Command {
@@ -48,15 +48,15 @@ fn force_really_outputs_to_redirected_stderr() {
 
 #[test]
 fn display_delay_never_delays_transfer() {
-    let start = Instant::now();
-    pv().args(["-D", "2", "-f"])
+    // Leave room for coverage instrumentation and busy CI runners while still
+    // rejecting a transfer that sleeps for the requested display delay.
+    pv().args(["-D", "3600", "-f"])
         .write_stdin("abc")
-        .timeout(Duration::from_secs(1))
+        .timeout(Duration::from_secs(30))
         .assert()
         .success()
         .stdout("abc")
         .stderr("");
-    assert!(start.elapsed() < Duration::from_secs(1));
 }
 
 #[test]
