@@ -67,11 +67,184 @@ mod unix {
 
 #[cfg(unix)]
 pub use unix::{install, received};
-#[cfg(not(unix))]
+#[cfg(windows)]
+mod windows {
+    use super::*;
+    use std::ffi::c_void;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use std::sync::{
+        atomic::{AtomicBool, AtomicI32, Ordering},
+        Arc, OnceLock,
+    };
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+    type Handle = *mut c_void;
+
+    // Kernel32 ABI: https://learn.microsoft.com/windows/console/setconsolectrlhandler
+    // and https://learn.microsoft.com/windows/win32/fileio/cancelsynchronousio-func
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetConsoleCtrlHandler(
+            handler: Option<unsafe extern "system" fn(u32) -> i32>,
+            add: i32,
+        ) -> i32;
+        fn CreateEventW(
+            attributes: *const c_void,
+            manual: i32,
+            initial: i32,
+            name: *const u16,
+        ) -> Handle;
+        fn SetEvent(event: Handle) -> i32;
+        fn WaitForSingleObject(handle: Handle, milliseconds: u32) -> u32;
+        fn GetCurrentProcess() -> Handle;
+        fn GetCurrentThread() -> Handle;
+        fn DuplicateHandle(
+            source_process: Handle,
+            source: Handle,
+            target_process: Handle,
+            target: *mut Handle,
+            access: u32,
+            inherit: i32,
+            options: u32,
+        ) -> i32;
+        fn CancelSynchronousIo(thread: Handle) -> i32;
+        fn TerminateProcess(process: Handle, exit_code: u32) -> i32;
+    }
+    static RECEIVED: AtomicI32 = AtomicI32::new(0);
+    // The event is process-lived so a concurrently running callback can never
+    // use a closed/recycled handle during handler removal. One fixed handle,
+    // not one allocation per event or per transferred buffer.
+    static EVENT: OnceLock<OwnedHandle> = OnceLock::new();
+
+    unsafe extern "system" fn handle(event: u32) -> i32 {
+        if event > 1 {
+            return 0;
+        } // Close/logoff/shutdown retain OS semantics.
+        if RECEIVED
+            .compare_exchange(0, 2, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            unsafe {
+                TerminateProcess(GetCurrentProcess(), 130);
+            }
+        }
+        if let Some(event) = EVENT.get() {
+            unsafe {
+                SetEvent(event.as_raw_handle());
+            }
+        }
+        1
+    }
+    pub struct Handlers {
+        registered: bool,
+        stop: Arc<AtomicBool>,
+        worker: Option<JoinHandle<()>>,
+    }
+    impl Drop for Handlers {
+        fn drop(&mut self) {
+            if self.registered {
+                unsafe {
+                    SetConsoleCtrlHandler(Some(handle), 0);
+                }
+            }
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(event) = EVENT.get() {
+                unsafe {
+                    SetEvent(event.as_raw_handle());
+                }
+            }
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+    pub fn install() -> io::Result<Handlers> {
+        if EVENT.get().is_none() {
+            let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
+            if event.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let event = unsafe { OwnedHandle::from_raw_handle(event) };
+            let _ = EVENT.set(event);
+        }
+        let mut thread = std::ptr::null_mut();
+        // Duplicate the main thread's pseudo-handle into a real, owned handle
+        // usable by the cancellation worker (DUPLICATE_SAME_ACCESS = 2).
+        if unsafe {
+            DuplicateHandle(
+                GetCurrentProcess(),
+                GetCurrentThread(),
+                GetCurrentProcess(),
+                &mut thread,
+                0,
+                0,
+                2,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let thread = unsafe { OwnedHandle::from_raw_handle(thread) };
+        let mut handlers = Handlers {
+            registered: false,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+        };
+        if unsafe { SetConsoleCtrlHandler(Some(handle), 1) } == 0 {
+            let error = io::Error::last_os_error();
+            // No attached console is normal for services/redirected tools.
+            if error.raw_os_error() == Some(6) {
+                return Ok(handlers);
+            }
+            return Err(error);
+        }
+        handlers.registered = true;
+        let stop = handlers.stop.clone();
+        let debug = crate::error::debug_enabled();
+        handlers.worker = Some(std::thread::Builder::new().name("pv-cancel".into()).spawn(
+            move || {
+                let event = EVENT.get().expect("event initialized before handler");
+                unsafe {
+                    WaitForSingleObject(event.as_raw_handle(), u32::MAX);
+                }
+                if debug && !stop.load(Ordering::Relaxed) {
+                    eprintln!("pv: debug: console cancellation requested");
+                }
+                let mut first = true;
+                let mut success_reported = false;
+                // Repeat until unwinding finishes: cancellation can race the
+                // check immediately before ReadFile/WriteFile begins blocking.
+                while !stop.load(Ordering::Relaxed) {
+                    let result = unsafe { CancelSynchronousIo(thread.as_raw_handle()) };
+                    if debug && (first || (result != 0 && !success_reported)) {
+                        if result == 0 {
+                            eprintln!(
+                                "pv: debug: CancelSynchronousIo pending lookup: {}",
+                                io::Error::last_os_error()
+                            );
+                        } else {
+                            eprintln!("pv: debug: synchronous I/O cancellation requested");
+                        }
+                    }
+                    first = false;
+                    success_reported |= result != 0;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            },
+        )?);
+        Ok(handlers)
+    }
+    pub fn received() -> Option<i32> {
+        (RECEIVED.load(Ordering::Relaxed) != 0).then_some(2)
+    }
+}
+#[cfg(windows)]
+pub use windows::{install, received};
+#[cfg(not(any(unix, windows)))]
 pub fn install() -> io::Result<()> {
     Ok(())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub fn received() -> Option<i32> {
     None
 }

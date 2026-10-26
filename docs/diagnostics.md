@@ -41,8 +41,8 @@ is disabled unless the value is exactly `1`; it does not change transfer options
 Ordinary unredirected progress, numeric records, and debugging all share stderr,
 so leave debugging off when another program parses numeric output.
 
-This is event-level diagnostic output, not a per-buffer performance tracer.
-For profiling, use the reproducible benchmark harness and system profiling tools.
+For per-operation profiling, use `PV_TRACE=1` as described below; for comparable
+throughput measurements use the benchmark harness with diagnostics disabled.
 The copier transports arbitrary bytes; it does not diagnose content encoding or
 application-level corruption. Interrupted system I/O is retried, and kernel copy
 paths fall back when supported; unsupported platform features report errors.
@@ -63,11 +63,72 @@ are outside that scope. A parent's ignored signal disposition is respected.
 
 A repeated handled signal forces immediate exit. SIGKILL cannot be caught, and
 uninterruptible kernel/device operations may delay cooperative cancellation.
-These cases cannot guarantee cleanup. Native Windows console cancellation remains
-separate work; ordinary Windows I/O error handling is unchanged.
+These cases cannot guarantee cleanup. Windows console cancellation is described
+below; ordinary Windows I/O error handling keeps the same exit categories.
 
 Memory-allocation failures for transfer, line-estimation and kernel-fallback
 buffers return an error instead of invoking an infallible allocation. Reduce `-B`
 when the transfer buffer exceeds available address space. Descriptor exhaustion
 suggests closing descriptors or raising the open-file limit; overlong paths
 suggest shortening the path or filename component.
+
+## Operation profiling
+
+`PV_TRACE=1` emits versioned `pv-trace: {JSON}` records on stderr. It is opt-in
+and independent of `PV_DEBUG`. Read/write/kernel calls, kernel fallback, byte
+accounting, throttling, rendering, and stream start/stop carry monotonic elapsed
+and operation-duration nanoseconds, byte counts, method, error kind, process ID and a stream
+ID. Staging and command-monitor directions use separate IDs. Records contain no
+payload, argv, or file paths; requested normal progress fields can still display
+content independently, so use `-q` for a clean diagnostic capture.
+
+```sh
+PV_TRACE=1 pv -q -C input.bin -o output.bin 2> trace.log
+python3 scripts/summarize_trace.py trace.log > profile.json
+```
+
+The summary aggregates calls, bytes, total/max operation time and errors, and
+marks streams without a stop record as incomplete. Trace completion does not mean
+the copy succeeded: inspect the command exit status and recorded errors. It
+rejects malformed, unsupported or empty traces rather than inventing a profile.
+Concurrent stream timings overlap; their sum is not wall-clock runtime. Per-buffer
+logging changes timing significantly: compare performance with tracing disabled,
+then use the trace to locate costly operations. Trace output is best effort if
+stderr cannot be written. Disabled tracing performs no per-buffer clock reads or
+record allocation. Numeric output shares stderr; do not enable tracing for an
+unmodified numeric-output parser.
+
+## Windows console cancellation
+
+Ctrl-C and Ctrl-Break now request cooperative cancellation with exit status 130.
+A console callback wakes a worker that cancels synchronous I/O on the copy thread,
+including redirected reads/writes. Repeating the request forces immediate exit.
+The handler ignores console-close/logoff/shutdown events so Windows retains its
+normal forced-termination behavior. Programs without an attached console still
+copy normally; no console keyboard event can be delivered to such a process.
+Some device drivers cannot cancel I/O immediately; forced termination remains an
+OS operation and cannot guarantee Rust-level cleanup.
+
+The Windows CI suite creates a private console and exercises real Ctrl-C and
+Ctrl-Break during stalled input, blocked output, throttling and temporary staging.
+Anonymous staging files close/delete before successful cooperative exit. Redirected
+Windows streams use duplicated file handles, forwarding partial records without
+line buffering and avoiding read-ahead past `--stop-at-size`. The
+callback does not use Rust stdio or attempt cleanup itself.
+
+## Error-reporting scope
+
+All reported failures include an operation and a recovery hint. File/option
+failures name paths or rejected values; copy failures identify source, destination
+and successfully written bytes. Descriptor watching identifies list paths, line
+numbers, malformed targets and descriptor metadata paths; disappearing descriptors
+are treated as normal process-exit races. Causes and exit categories are retained.
+
+A pipe viewer copies arbitrary bytes: it does not parse file formats, validate
+UTF-8, or infer corruption from payload content. EOF is normal, and `--size` is an
+estimate rather than an integrity contract. Hash/checksum validation belongs to
+the producer/consumer or an explicit verification step. Simulated invalid encoding
+is therefore a byte-preservation test, not an error scenario. Kernel scheduling
+starvation, uncatchable termination and universal resilience after allocator
+failure cannot be solved by an application error message. Bounded buffers, resource
+fault tests, watchdogs and system-error context cover the actionable contracts.

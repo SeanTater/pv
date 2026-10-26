@@ -142,15 +142,26 @@ pub fn watch(mut config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut specs = config.watchfd.clone();
     while let Some(spec) = specs.pop() {
         if let Some(path) = spec.strip_prefix('@') {
-            for line in std::fs::read_to_string(path)?
+            let list = std::fs::read_to_string(path).map_err(|e| {
+                crate::error::io_failure(2, &format!("cannot read watch list '{path}'"), e)
+            })?;
+            for (index, line) in list
                 .lines()
-                .filter(|l| !l.trim().is_empty())
+                .enumerate()
+                .filter(|(_, line)| !line.trim().is_empty())
             {
                 // List files contain PID[:FD], never recursive list-file references.
-                targets.push(parse_target(line.trim())?);
+                targets.push(parse_target(line.trim()).map_err(|e| {
+                    crate::error::Failure::new(
+                        crate::error::status(e.as_ref()),
+                        format!("watch list '{path}', line {}: {e}", index + 1),
+                    )
+                })?);
             }
         } else if let Some(name) = spec.strip_prefix('=') {
-            for entry in std::fs::read_dir("/proc")? {
+            for entry in std::fs::read_dir("/proc").map_err(|e| {
+                crate::error::io_failure(2, "cannot enumerate /proc for --watchfd", e)
+            })? {
                 let entry = entry?;
                 let Some(pid) = entry
                     .file_name()
@@ -189,7 +200,9 @@ pub fn watch(mut config: Config) -> Result<(), Box<dyn std::error::Error>> {
         display.control = crate::control::Control::bind().ok();
     }
     if let Some(path) = &config.pidfile {
-        std::fs::write(path, format!("{}\n", std::process::id()))?;
+        std::fs::write(path, format!("{}\n", std::process::id())).map_err(|e| {
+            crate::error::io_failure(2, &format!("cannot write PID file '{path}'"), e)
+        })?;
     }
     let mut observed = false;
     loop {
@@ -205,8 +218,17 @@ pub fn watch(mut config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
             let root = format!("/proc/{pid}/fd");
-            let Ok(entries) = std::fs::read_dir(&root) else {
-                continue;
+            let entries = match std::fs::read_dir(&root) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(crate::error::io_failure(
+                        2,
+                        &format!("cannot inspect process {pid} descriptors in '{root}'"),
+                        error,
+                    )
+                    .into())
+                }
             };
             if fd.is_none() {
                 live = true;
@@ -230,7 +252,19 @@ pub fn watch(mut config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
                 live = true;
-                let info = std::fs::read_to_string(format!("/proc/{pid}/fdinfo/{number}"))?;
+                let path = format!("/proc/{pid}/fdinfo/{number}");
+                let info = match std::fs::read_to_string(&path) {
+                    Ok(info) => info,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                    Err(error) => {
+                        return Err(crate::error::io_failure(
+                            8,
+                            &format!("cannot read descriptor position '{path}'"),
+                            error,
+                        )
+                        .into())
+                    }
+                };
                 let pos = info
                     .lines()
                     .find_map(|line| {
@@ -269,11 +303,21 @@ fn parse_target(spec: &str) -> Result<(u32, Option<u32>), Box<dyn std::error::Er
         .split_once(':')
         .map(|(p, f)| (p, Some(f)))
         .unwrap_or((spec, None));
-    let pid = pid.parse::<u32>()?;
+    let invalid = || {
+        crate::error::Failure::new(
+            64,
+            format!("invalid --watchfd target '{spec}': expected positive PID[:FD]"),
+        )
+    };
+    let pid = pid.parse::<u32>().map_err(|_| invalid())?;
     if pid == 0 {
-        return Err("watchfd PID must be positive".into());
+        return Err(crate::error::Failure::new(
+            64,
+            format!("watchfd PID must be positive in target '{spec}'"),
+        )
+        .into());
     }
-    Ok((pid, fd.map(str::parse).transpose()?))
+    Ok((pid, fd.map(str::parse).transpose().map_err(|_| invalid())?))
 }
 
 #[cfg(not(target_os = "linux"))]

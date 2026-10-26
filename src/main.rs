@@ -5,6 +5,7 @@ mod error;
 mod process;
 mod signal;
 mod terminal;
+mod trace;
 mod transfer;
 
 use cli::Config;
@@ -58,10 +59,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.files.push("-".into());
     }
     let mut inputs = Vec::new();
+    let mut input_names = Vec::new();
     let mut input_failures = 0;
     for path in &config.files {
         match Input::open(path) {
-            Ok(input) => inputs.push(input),
+            Ok(input) => {
+                inputs.push(input);
+                input_names.push(path.clone());
+            }
             Err(e) => {
                 let failure = error::io_failure(2, &format!("cannot open input '{path}'"), e);
                 let _ = error::report(&failure, &mut io::stderr().lock());
@@ -72,15 +77,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if inputs.is_empty() {
         return Err(error::Failure::new(2, "no readable inputs").into());
     }
+    config.files = input_names;
     if config.total.is_none() && input_failures == 0 {
         let mut total = Some(0u64);
-        for input in &mut inputs {
+        for (input, name) in inputs.iter_mut().zip(&config.files) {
             let size = input.estimate(config.line_mode, if config.null { 0 } else { b'\n' });
             let size = match size {
                 Ok(size) => size,
                 Err(_) if config.skip_errors > 0 => None,
                 Err(e) => {
-                    return Err(error::io_failure(8, "read error while estimating size", e).into())
+                    return Err(error::io_failure(
+                        8,
+                        &format!("read error while estimating size for '{name}'"),
+                        e,
+                    )
+                    .into())
                 }
             };
             total = total.zip(size).and_then(|(a, b)| a.checked_add(b));
@@ -118,11 +129,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         // Use the same bounded, counted, paced engine in both phases. In
         // particular --stop-at-size must not consume excess data while staging.
-        copy(&mut inputs, &mut staged_output, &mut display)?;
+        copy(
+            &mut inputs,
+            &mut staged_output,
+            &mut display,
+            &format!("staging to '{path}'"),
+        )?;
         spool
             .seek(SeekFrom::Start(0))
             .map_err(|e| error::io_failure(8, "cannot rewind staging file", e))?;
         inputs = vec![Input::File(spool)];
+        config.files = vec![if path == "-" {
+            "temporary staging file".into()
+        } else {
+            path.clone()
+        }];
         if config.total.is_none() {
             config.total = Some(display.units);
         }
@@ -132,7 +153,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut output =
         Output::open(&config).map_err(|e| error::io_failure(2, "output open error", e))?;
-    copy(&mut inputs, &mut output, &mut display).map_err(|e| {
+    let destination = format!(
+        "writing to '{}'",
+        config.output.as_deref().unwrap_or("standard output")
+    );
+    copy(&mut inputs, &mut output, &mut display, &destination).map_err(|e| {
         let code = error::status(&e);
         error::io_failure(
             code,
@@ -148,7 +173,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn copy(inputs: &mut [Input], output: &mut Output, display: &mut Display) -> io::Result<()> {
+fn copy(
+    inputs: &mut [Input],
+    output: &mut Output,
+    display: &mut Display,
+    phase: &str,
+) -> io::Result<()> {
     #[cfg(target_os = "linux")]
     let mut direct_guards = Vec::new();
     if display.config.direct_io {
@@ -184,12 +214,21 @@ fn copy(inputs: &mut [Input], output: &mut Output, display: &mut Display) -> io:
             display.config.line_mode
         );
     }
-    for input in inputs.iter_mut() {
-        #[cfg(target_os = "linux")]
-        if transfer::kernel(input, output, display, &mut throttle)? {
-            continue;
-        }
-        transfer::buffered(input, output, display, &mut throttle)?;
+    for (index, input) in inputs.iter_mut().enumerate() {
+        let result = copy_input(input, output, display, &mut throttle);
+        result.map_err(|e| {
+            let source = display
+                .config
+                .files
+                .get(index)
+                .map(String::as_str)
+                .unwrap_or("standard input");
+            error::io_failure(
+                error::status(&e),
+                &format!("copying input '{source}' while {phase}"),
+                e,
+            )
+        })?;
     }
     output
         .finish(display.config.sparse)
@@ -200,5 +239,20 @@ fn copy(inputs: &mut [Input], output: &mut Output, display: &mut Display) -> io:
             display.bytes, display.method
         );
     }
-    display.finish()
+    display
+        .finish()
+        .map_err(|e| error::io_failure(16, "cannot finish progress on standard error", e))
+}
+
+fn copy_input(
+    input: &mut Input,
+    output: &mut Output,
+    display: &mut Display,
+    throttle: &mut Throttle,
+) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    if transfer::kernel(input, output, display, throttle)? {
+        return Ok(());
+    }
+    transfer::buffered(input, output, display, throttle)
 }

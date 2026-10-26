@@ -9,6 +9,23 @@ use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::time::{Duration, Instant};
 
+// Windows file attributes alone do not reliably distinguish redirected pipe
+// handles from disk files. Seeking/sparse/sync operations require FILE_TYPE_DISK.
+fn regular_file(file: &File) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetFileType(handle: *mut std::ffi::c_void) -> u32;
+        }
+        if unsafe { GetFileType(file.as_raw_handle()) } != 1 {
+            return false;
+        }
+    }
+    file.metadata().is_ok_and(|metadata| metadata.is_file())
+}
+
 pub enum Input {
     File(File),
     #[cfg(not(unix))]
@@ -22,7 +39,23 @@ impl Input {
             {
                 return duplicate(0).map(Self::File);
             }
-            #[cfg(not(unix))]
+            #[cfg(windows)]
+            {
+                use std::io::IsTerminal;
+                use std::os::windows::io::AsHandle;
+                let stdin = io::stdin();
+                if !stdin.is_terminal() {
+                    // Avoid Stdin's read-ahead: -S must leave subsequent bytes
+                    // on the shared redirected handle for the next consumer.
+                    return stdin
+                        .as_handle()
+                        .try_clone_to_owned()
+                        .map(File::from)
+                        .map(Self::File);
+                }
+                return Ok(Self::Stdin(stdin));
+            }
+            #[cfg(not(any(unix, windows)))]
             {
                 return Ok(Self::Stdin(io::stdin()));
             }
@@ -31,7 +64,7 @@ impl Input {
     }
     pub fn regular(&self) -> bool {
         match self {
-            Self::File(f) => f.metadata().is_ok_and(|m| m.is_file()),
+            Self::File(f) => regular_file(f),
             #[cfg(not(unix))]
             Self::Stdin(_) => false,
         }
@@ -78,6 +111,7 @@ impl Input {
         }
     }
     fn skip_error(&mut self, block: u64, remaining: Option<u64>) -> io::Result<usize> {
+        let regular = self.regular();
         let f = match self {
             Self::File(f) => f,
             #[cfg(not(unix))]
@@ -87,7 +121,7 @@ impl Input {
                 ))
             }
         };
-        if !f.metadata()?.is_file() {
+        if !regular {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::FileTypeExt;
@@ -107,7 +141,7 @@ impl Input {
         let pos = f.stream_position()?;
         let skip = block - pos % block;
         let mut skip = skip.min(remaining.unwrap_or(u64::MAX));
-        if f.metadata()?.is_file() {
+        if regular {
             skip = skip.min(f.metadata()?.len().saturating_sub(pos));
         }
         f.seek(SeekFrom::Current(
@@ -168,14 +202,30 @@ impl Output {
         {
             duplicate(1).map(Self::File)
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::io::IsTerminal;
+            use std::os::windows::io::AsHandle;
+            let stdout = io::stdout();
+            if !stdout.is_terminal() {
+                // A pipe viewer must forward partial records immediately,
+                // rather than retain them in Stdout's global line buffer.
+                return stdout
+                    .as_handle()
+                    .try_clone_to_owned()
+                    .map(File::from)
+                    .map(Self::File);
+            }
+            Ok(Self::Stdout(stdout))
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             Ok(Self::Stdout(io::stdout()))
         }
     }
     pub fn regular(&self) -> bool {
         match self {
-            Self::File(f) => f.metadata().is_ok_and(|m| m.is_file()),
+            Self::File(f) => regular_file(f),
             #[cfg(not(unix))]
             _ => false,
         }
@@ -241,7 +291,11 @@ impl Write for Output {
         match self {
             Self::File(f) => f.write(b),
             #[cfg(not(unix))]
-            Self::Stdout(s) => s.write(b),
+            Self::Stdout(s) => {
+                let written = s.write(b)?;
+                s.flush()?;
+                Ok(written)
+            }
             #[cfg(not(unix))]
             Self::Discard => Ok(b.len()),
         }
@@ -386,6 +440,7 @@ impl Throttle {
         if display.config.limit == 0 {
             return Ok(());
         }
+        let trace_start = display.trace.start();
         let initial_rate = display.config.limit;
         while display.config.limit > 0 {
             // A remote update can release a throttled transfer immediately.
@@ -402,6 +457,14 @@ impl Throttle {
             std::thread::sleep(Duration::from_secs_f64(remaining.clamp(0.0, 0.05)));
             display.tick(false)?;
         }
+        display.trace.record(
+            "throttle",
+            trace_start,
+            amount,
+            display.bytes,
+            display.method,
+            None,
+        );
         Ok(())
     }
 }
@@ -471,6 +534,7 @@ pub fn buffered(
         {
             break;
         }
+        let trace_start = display.trace.start();
         #[cfg(target_os = "linux")]
         let read = if display.config.direct_io && input_regular {
             direct_tail(input.fd(), buffer.as_ptr(), max_read, || {
@@ -481,6 +545,14 @@ pub fn buffered(
         };
         #[cfg(not(target_os = "linux"))]
         let read = read_retry(input, &mut buffer[..max_read]);
+        display.trace.record(
+            "read",
+            trace_start,
+            read.as_ref().copied().unwrap_or(0) as u64,
+            display.bytes,
+            display.method,
+            read.as_ref().err(),
+        );
         let n = match read {
             Ok(0) => break,
             Ok(n) => {
@@ -584,6 +656,7 @@ fn write_payload(
             } else {
                 left.len()
             };
+            let trace_start = display.trace.start();
             #[cfg(target_os = "linux")]
             let write = if display.config.direct_io && output.regular() {
                 direct_tail(output.fd().unwrap(), left.as_ptr(), max, || {
@@ -594,6 +667,14 @@ fn write_payload(
             };
             #[cfg(not(target_os = "linux"))]
             let write = write_retry(output, &left[..max]);
+            display.trace.record(
+                "write",
+                trace_start,
+                write.as_ref().copied().unwrap_or(0) as u64,
+                display.bytes,
+                display.method,
+                write.as_ref().err(),
+            );
             let n = match write {
                 Ok(0) => {
                     return Err(crate::error::io_failure(
@@ -694,6 +775,7 @@ pub fn kernel(
         }
         // Try the nonblocking splice first. Poll only on backpressure rather
         // than adding two poll syscalls to every successful pipe transfer.
+        let trace_start = display.trace.start();
         let result = if in_regular && out_regular {
             display.method = "copy_file_range";
             // SAFETY: live descriptors and null offset pointers use their current offsets.
@@ -724,8 +806,16 @@ pub fn kernel(
                 )
             }
         };
-        if result < 0 {
-            let e = io::Error::last_os_error();
+        let kernel_error = (result < 0).then(io::Error::last_os_error);
+        display.trace.record(
+            "kernel",
+            trace_start,
+            result.max(0) as u64,
+            display.bytes,
+            display.method,
+            kernel_error.as_ref(),
+        );
+        if let Some(e) = kernel_error {
             if e.kind() == ErrorKind::Interrupted {
                 continue;
             }
@@ -742,6 +832,14 @@ pub fn kernel(
                 e.raw_os_error(),
                 Some(libc::EINVAL | libc::ENOSYS | libc::EXDEV | libc::EOPNOTSUPP | libc::EBADF)
             ) {
+                display.trace.record(
+                    "fallback",
+                    display.trace.start(),
+                    0,
+                    display.bytes,
+                    display.method,
+                    Some(&e),
+                );
                 return Ok(false);
             }
             return Err(crate::error::io_failure(
@@ -763,6 +861,7 @@ pub fn kernel(
             let mut left = n;
             while left > 0 {
                 crate::signal::check()?;
+                let trace_start = display.trace.start();
                 let written = unsafe {
                     libc::splice(
                         read.as_raw_fd(),
@@ -773,8 +872,16 @@ pub fn kernel(
                         libc::SPLICE_F_MOVE,
                     )
                 };
-                if written < 0 {
-                    let e = io::Error::last_os_error();
+                let write_error = (written < 0).then(io::Error::last_os_error);
+                display.trace.record(
+                    "kernel-write",
+                    trace_start,
+                    written.max(0) as u64,
+                    display.bytes,
+                    display.method,
+                    write_error.as_ref(),
+                );
+                if let Some(e) = write_error {
                     if e.kind() == ErrorKind::Interrupted {
                         continue;
                     }
@@ -919,6 +1026,10 @@ fn read_retry(reader: &mut impl Read, buffer: &mut [u8]) -> io::Result<usize> {
     loop {
         crate::signal::check()?;
         match reader.read(buffer) {
+            Err(_) if crate::signal::received().is_some() => {
+                crate::signal::check()?;
+                unreachable!()
+            }
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             result => return result,
         }
@@ -929,6 +1040,10 @@ fn write_retry(writer: &mut impl Write, buffer: &[u8]) -> io::Result<usize> {
     loop {
         crate::signal::check()?;
         match writer.write(buffer) {
+            Err(_) if crate::signal::received().is_some() => {
+                crate::signal::check()?;
+                unreachable!()
+            }
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Ok(0) if !buffer.is_empty() => {
                 return Err(io::Error::new(

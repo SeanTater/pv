@@ -95,7 +95,9 @@ pub fn report(error: &(dyn Error + 'static), output: &mut impl io::Write) -> io:
             Some("check platform support; try --no-splice for ordinary buffered copying")
         }
         _ if status(error) == 64 => Some("use --help for valid options, units and examples"),
-        _ => None,
+        _ if status(error) == 8 => Some("check the input device or filesystem; the partial copy is incomplete"),
+        _ if status(error) == 16 => Some("check destination access, free space and the downstream reader; verify the copy before using it"),
+        _ => Some("check the reported operation; set PV_DEBUG=1 for the cause chain and system details"),
     };
     // ENOSPC is available on Unix even on the project's minimum Rust version.
     #[cfg(unix)]
@@ -115,6 +117,22 @@ pub fn report(error: &(dyn Error + 'static), output: &mut impl io::Write) -> io:
             output,
             "  help: shorten the path or one of its filename components"
         )?;
+    }
+    #[cfg(windows)]
+    match raw_code {
+        Some(4) => writeln!(
+            output,
+            "  help: close unused file handles or raise the process open-file limit"
+        )?,
+        Some(206) => writeln!(
+            output,
+            "  help: shorten the path or filename component; check Windows long-path support"
+        )?,
+        Some(39 | 112) => writeln!(
+            output,
+            "  help: free destination space or choose another output path; verify the copy"
+        )?,
+        _ => {}
     }
     if let Some(help) = help {
         writeln!(output, "  help: {help}")?;

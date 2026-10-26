@@ -387,6 +387,7 @@ impl Rates {
 }
 
 pub struct Display {
+    pub trace: crate::trace::Trace,
     pub config: Config,
     pub bytes: u64,
     pub units: u64,
@@ -439,6 +440,7 @@ impl Display {
             .min(1024 * 1024);
         let now = Instant::now();
         Self {
+            trace: crate::trace::Trace::new(),
             config,
             bytes: 0,
             units: 0,
@@ -468,6 +470,14 @@ impl Display {
         }
         self.bytes += bytes;
         self.units += units;
+        self.trace.record(
+            "progress",
+            self.trace.start(),
+            bytes,
+            self.bytes,
+            self.method,
+            None,
+        );
         if let Some(data) = data {
             if self.tail_capacity > 0 {
                 let start = data.len().saturating_sub(self.tail_capacity);
@@ -633,7 +643,10 @@ impl Display {
         if !self.config.numeric && !self.config.force && !io::stderr().is_terminal() {
             return Ok(());
         }
+        let render_start = self.trace.start();
         let line = self.render();
+        self.trace
+            .record("render", render_start, 0, self.bytes, self.method, None);
         if line.is_empty() {
             return Ok(());
         }
