@@ -210,7 +210,10 @@ Force a named custom progress display.
 Zero means success. Nonzero statuses identify failures; relevant upstream-compatible
 bits are 2 for opening/accessing files, 8 for input/read failures, 16 for output/write
 failures, and 64 for invalid options. Other failures may return 1. Monitor mode
-propagates the monitored command's exit status. Inspect stderr for details.
+propagates the monitored command's exit status. On Unix, handled SIGINT, SIGTERM
+and SIGHUP cancel with status 128 plus the signal number and unwind temporary
+resources. A repeated signal forces immediate exit; SIGKILL cannot be cleaned up.
+Inspect stderr for details.
 .SH ENVIRONMENT AND FILES
 There is no configuration file or PV_* option-default environment interface.
 The standard temporary directory is used for temporary store-and-forward files

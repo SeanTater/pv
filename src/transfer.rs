@@ -50,10 +50,12 @@ impl Input {
             return Ok(Some(f.metadata()?.len().saturating_sub(position)));
         }
         let mut count = 0u64;
-        let mut buffer = vec![0; 128 * 1024];
+        let mut buffer = AlignedBuffer::new(128 * 1024)?;
+        let buffer = buffer.slice();
         let result = (|| {
             loop {
-                let n = match f.read(&mut buffer) {
+                crate::signal::check()?;
+                let n = match f.read(buffer) {
                     Err(e) if e.kind() == ErrorKind::Interrupted => continue,
                     other => other?,
                 };
@@ -331,6 +333,7 @@ fn same_file(a: &str, b: &str) -> io::Result<bool> {
 #[cfg(unix)]
 pub fn wait_ready(fd: RawFd, events: i16, display: &mut Display) -> io::Result<()> {
     loop {
+        crate::signal::check()?;
         if display
             .cancel
             .as_ref()
@@ -431,6 +434,7 @@ pub fn buffered(
     let mut reported_error = false;
     let mut consecutive_errors = 0u64;
     loop {
+        crate::signal::check()?;
         let remaining = if display.config.stop_at_size {
             display
                 .config
@@ -567,6 +571,7 @@ fn write_payload(
         let mut left = data;
         let output_pipe = output.pipe();
         while !left.is_empty() {
+            crate::signal::check()?;
             #[cfg(unix)]
             if let Some(fd) = output.fd() {
                 if output_pipe {
@@ -667,6 +672,7 @@ pub fn kernel(
         }
     }
     loop {
+        crate::signal::check()?;
         if display.config.no_splice {
             return Ok(false);
         }
@@ -756,6 +762,7 @@ pub fn kernel(
             throttle.before(n as u64, display)?;
             let mut left = n;
             while left > 0 {
+                crate::signal::check()?;
                 let written = unsafe {
                     libc::splice(
                         read.as_raw_fd(),
@@ -778,10 +785,11 @@ pub fn kernel(
                         // Input has already advanced. Drain staged bytes with read/write
                         // before falling back, rather than losing or duplicating them.
                         let mut read = read;
-                        let mut staged = vec![0; left];
-                        read.read_exact(&mut staged)
+                        let mut staged = AlignedBuffer::new(left)?;
+                        let staged = &mut staged.slice()[..left];
+                        read.read_exact(staged)
                             .map_err(|e| crate::error::io_failure(8, "read error", e))?;
-                        write_payload(output, &staged, left as u64, display)?;
+                        write_payload(output, staged, left as u64, display)?;
                         return Ok(false);
                     }
                     return Err(crate::error::io_failure(16, "write error", e));
@@ -813,6 +821,12 @@ pub struct AlignedBuffer {
 }
 impl AlignedBuffer {
     pub fn new(size: usize) -> io::Result<Self> {
+        if size == 0 {
+            return Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                "transfer buffer must be nonzero",
+            ));
+        }
         let size = size
             .checked_add(4095)
             .ok_or_else(|| io::Error::other("buffer overflow"))?
@@ -821,7 +835,14 @@ impl AlignedBuffer {
         let layout = std::alloc::Layout::from_size_align(size, 4096).map_err(io::Error::other)?;
         // SAFETY: layout has nonzero size and valid power-of-two alignment.
         let pointer = std::ptr::NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) })
-            .ok_or_else(|| io::Error::other("cannot allocate transfer buffer"))?;
+            .ok_or_else(|| {
+                io::Error::new(
+                    ErrorKind::OutOfMemory,
+                    format!(
+                        "cannot allocate {size}-byte transfer buffer; reduce --buffer-size (-B)"
+                    ),
+                )
+            })?;
         Ok(Self { pointer, layout })
     }
     pub fn slice(&mut self) -> &mut [u8] {
@@ -896,6 +917,7 @@ fn direct_tail<T>(
 
 fn read_retry(reader: &mut impl Read, buffer: &mut [u8]) -> io::Result<usize> {
     loop {
+        crate::signal::check()?;
         match reader.read(buffer) {
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             result => return result,
@@ -905,6 +927,7 @@ fn read_retry(reader: &mut impl Read, buffer: &mut [u8]) -> io::Result<usize> {
 
 fn write_retry(writer: &mut impl Write, buffer: &[u8]) -> io::Result<usize> {
     loop {
+        crate::signal::check()?;
         match writer.write(buffer) {
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Ok(0) if !buffer.is_empty() => {

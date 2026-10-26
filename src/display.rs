@@ -595,6 +595,7 @@ impl Display {
     }
 
     pub fn tick(&mut self, final_update: bool) -> io::Result<()> {
+        crate::signal::check()?;
         if self.last_control.elapsed() >= Duration::from_millis(50) {
             self.last_control = Instant::now();
             if let Some(control) = &self.control {
