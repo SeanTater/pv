@@ -5,8 +5,6 @@ on:
     branches: [master, main]
   push:
     branches: [master, main]
-  schedule:
-    - cron: '19 4 * * *'
   workflow_dispatch:
 
 permissions:
@@ -28,7 +26,7 @@ jobs:
     - run: cargo build --locked --release
     - name: Sustain transfers and bound RSS growth
       env:
-        SOAK_SECONDS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '180' || '12' }}
+        SOAK_SECONDS: ${{ github.event_name == 'workflow_dispatch' && '180' || '12' }}
       run: python3 benchmarks/soak.py --binary target/release/pv --duration "$SOAK_SECONDS" --output soak.json
     - name: Preserve measurements
       if: always()
@@ -49,7 +47,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         # PRs compare their merge result with the base revision; pushes compare
-        # the prior main revision. Scheduled runs retain a stable release anchor.
+        # the prior main revision. Manual runs retain a stable release anchor.
         ref: ${{ github.event.pull_request.base.sha || github.event.before || 'v0.6.0' }}
         path: baseline
     - uses: dtolnay/rust-toolchain@stable

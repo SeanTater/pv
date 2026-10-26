@@ -76,8 +76,8 @@ production lines are excluded to reach the threshold.
 ## Sustained memory and performance checks
 
 The `Sustained reliability` workflow runs on pull requests and main pushes, with
-longer runs every night and on manual dispatch. Each memory scenario runs for
-12 seconds on a PR and **180 seconds** nightly/manually. Use a longer local run:
+longer runs available through manual dispatch. There is no scheduled run. Each
+memory scenario runs for 12 seconds on a PR and **180 seconds** manually. Use a longer local run:
 
 ```sh
 cargo build --release --locked
@@ -95,7 +95,7 @@ volume/duration, not mathematical proof that no tiny or extremely slow leak exis
 
 Performance checks build candidate and baseline revisions on the **same runner**.
 PRs compare the merge result with the PR base; pushes compare the previous main
-revision; nightly/manual runs use the v0.6.0 release anchor. Five workloads cover
+revision; manual runs use the v0.6.0 release anchor. Five workloads cover
 file copying, pipes, lines, numeric output and formatting. Every variant first
 passes exact payload/hash and numeric-count validation, then warmup. Seven paired
 samples run in randomized order. A failure requires all of:

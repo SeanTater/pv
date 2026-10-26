@@ -35,6 +35,6 @@ A ratio above one favors Rust. Line counting is substantially faster here; upstr
 ## Continuous regression and memory monitoring
 
 See [TESTING.md](../TESTING.md#sustained-memory-and-performance-checks) for the
-same-runner revision gate, nightly sustained memory checks, conservative failure
+same-runner revision gate, manual sustained memory checks, conservative failure
 criteria, and retained JSON artifacts. `regression.py` compares two Rust revisions;
 `compare.py` remains the separate pinned-upstream performance investigation tool.
