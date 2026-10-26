@@ -46,9 +46,11 @@ well as the test harnesses. The previous default ptrace run without `--follow-ex
 reported only 11.49% and missed most integration-exercised code. LLVM also avoids
 ptrace's substantial timing overhead in child-process and terminal tests.
 
-On Linux x86_64, this branch measured **91.19% line coverage (1418/1555)** with
-all 245 tests passing and no external upstream reference configured. The preceding merged baseline was 83.47% (1298/1555); the expanded suite exceeds
-the issue's >90% goal. Source/region mapping differs
+After the coverage and Unix cancellation changes, the combined Linux x86_64
+baseline measured **91.44% line coverage (1495/1635)** with all 254 Rust tests
+passing and no external upstream reference configured. The earlier baseline was
+83.47% (1298/1555); the expanded suite exceeds the issue's >90% goal.
+Source/region mapping differs
 between backends, so the old 11.49% is not an apples-to-apples improvement measure.
 CI enforces a 90% floor and preserves XML/JSON reports as the `coverage-linux`
 artifact; Codecov receives the XML report. Inspect uncovered lines before raising
@@ -71,13 +73,52 @@ direct-I/O flag restoration on failure, nested directory size references, sparse
 and synchronized output, monitor errors and descriptor-watch validation. No
 production lines are excluded to reach the threshold.
 
-Remaining work for #24 includes sustained-duration memory/leak profiling and
-continuous performance monitoring. Signal-termination cleanup is handled by the
-companion work for #28; SIGKILL cannot run Rust destructors.
+## Sustained memory and performance checks
 
-## Performance
+The `Sustained reliability` workflow runs on pull requests and main pushes, with
+longer runs available through manual dispatch. There is no scheduled run. Each
+memory scenario runs for 12 seconds on a PR and **180 seconds** manually. Use a longer local run:
 
-Use `benchmarks/run_benchmarks.sh` and the methodology in `benchmarks/README.md`
-for repeated performance comparisons with integrity checks. The functional suite
-is not a continuous performance regression monitor. Do not add tight shared-runner
-throughput thresholds as substitutes for reproducible measurements.
+```sh
+cargo build --release --locked
+python3 benchmarks/soak.py --binary target/release/pv --duration 60 --output soak.json
+```
+
+Two persistent processes exercise ordinary buffered copying and history/rolling
+rate formatting. Producers and consumers hash the complete stream independently,
+and the final counts and hashes must match. Streaming is paced to 20 MiB/s to
+sustain duration without saturating a shared runner. Linux RSS is sampled every
+100 ms: after warmup, growth must stay within 8 MiB, peak RSS within 64 MiB, and
+the child has a 128 MiB address-space cap. A watchdog bounds stuck I/O; failed or
+incomplete runs cannot report success. This detects sustained growth at the tested
+volume/duration, not mathematical proof that no tiny or extremely slow leak exists.
+
+Performance checks build candidate and baseline revisions on the **same runner**.
+PRs compare the merge result with the PR base; pushes compare the previous main
+revision; manual runs use the v0.6.0 release anchor. Five workloads cover
+file copying, pipes, lines, numeric output and formatting. Every variant first
+passes exact payload/hash and numeric-count validation, then warmup. Seven paired
+samples run in randomized order. A failure requires all of:
+
+- A median paired slowdown greater than 25%.
+- A one-sided paired bootstrap lower bound greater than 10% slowdown.
+- A median increase greater than 5 ms.
+- The same finding in a second independent seven-pair confirmation batch.
+
+This broad gate catches repeatable substantial regressions without turning tiny
+startup/scheduling differences into CI failures. JSON artifacts retain every
+sample, binary hashes, results and completion status; a failed command or integrity
+check fails the job. Policy tests include noisy/outlier cases and injected growth.
+Do not interpret a green gate as a claim that performance cannot regress below
+these detection limits, or as resolution of the separate optimization issue #23.
+
+```sh
+python3 benchmarks/regression.py --candidate target/release/pv --baseline /path/to/baseline/pv --output regression.json
+python3 -m unittest discover -s benchmarks/tests
+```
+
+The workflow uploads `sustained-memory` and `paired-performance` artifacts even
+when a check fails. Unix signal-termination cleanup is covered by the termination
+suite; SIGKILL and forced process termination cannot run Rust destructors.
+For detailed upstream comparisons, use `benchmarks/run_benchmarks.sh` and the
+methodology in `benchmarks/README.md`.
