@@ -30,6 +30,13 @@ impl Drop for Running {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
+        if std::thread::panicking() {
+            if let Some(mut stderr) = self.0.stderr.take() {
+                let mut text = String::new();
+                let _ = stderr.read_to_string(&mut text);
+                eprintln!("cancelled test child diagnostics: {text}");
+            }
+        }
     }
 }
 fn until(mut ready: impl FnMut() -> bool) {
@@ -87,6 +94,7 @@ fn console_scenarios() {
             .arg(&pid)
             .env("TMP", dir.path())
             .env("TEMP", dir.path())
+            .env("PV_DEBUG", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -107,10 +115,12 @@ fn console_scenarios() {
             _ => {}
         }
         let mut child = Running(command.spawn().unwrap());
+        eprintln!("console case {case}: spawned {}", child.0.id());
         until(|| {
             std::fs::read_to_string(&pid)
                 .is_ok_and(|text| text.trim().parse::<u32>() == Ok(child.0.id()))
         });
+        eprintln!("console case {case}: PID ready");
         if case == "staging" || case == "throttle" {
             child
                 .0
@@ -128,6 +138,7 @@ fn console_scenarios() {
         } else {
             (1, child.0.id())
         };
+        eprintln!("console case {case}: delivering event {event} to group {group}");
         assert_ne!(
             unsafe { GenerateConsoleCtrlEvent(event, group) },
             0,
@@ -135,6 +146,7 @@ fn console_scenarios() {
             std::io::Error::last_os_error()
         );
         until(|| child.0.try_wait().unwrap().is_some());
+        eprintln!("console case {case}: exited");
         assert_eq!(child.0.wait().unwrap().code(), Some(130), "case {case}");
         let mut stderr = String::new();
         child

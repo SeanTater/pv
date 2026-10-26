@@ -200,18 +200,30 @@ mod windows {
         }
         handlers.registered = true;
         let stop = handlers.stop.clone();
+        let debug = crate::error::debug_enabled();
         handlers.worker = Some(std::thread::Builder::new().name("pv-cancel".into()).spawn(
             move || {
                 let event = EVENT.get().expect("event initialized before handler");
                 unsafe {
                     WaitForSingleObject(event.as_raw_handle(), u32::MAX);
                 }
+                if debug {
+                    eprintln!("pv: debug: console cancellation worker woke");
+                }
+                let mut first = true;
+                let mut success_reported = false;
                 // Repeat until unwinding finishes: cancellation can race the
                 // check immediately before ReadFile/WriteFile begins blocking.
                 while !stop.load(Ordering::Relaxed) {
-                    unsafe {
-                        CancelSynchronousIo(thread.as_raw_handle());
+                    let result = unsafe { CancelSynchronousIo(thread.as_raw_handle()) };
+                    if debug && (first || (result != 0 && !success_reported)) {
+                        eprintln!(
+                            "pv: debug: CancelSynchronousIo result={result}, error={}",
+                            io::Error::last_os_error()
+                        );
                     }
+                    first = false;
+                    success_reported |= result != 0;
                     std::thread::sleep(Duration::from_millis(10));
                 }
             },

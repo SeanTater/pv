@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise the local README/recipe contracts with temporary files and no services."""
 import argparse
+import os
+from summarize_trace import summarize
 from pathlib import Path
 import subprocess
 import tempfile
@@ -49,3 +51,12 @@ with tempfile.TemporaryDirectory() as directory:
     restored = subprocess.run(['gzip', '-dc'], input=compressed.stdout, capture_output=True, check=True)
     assert restored.stdout == payload
 print('15 local recipe contracts passed (external services excluded).')
+
+# Exercise the actual Rust/Python trace schema together, not only synthetic data.
+trace = subprocess.run([binary, '-q', '-C'], input=payload, capture_output=True,
+                       timeout=30, check=True, env={**os.environ, 'PV_TRACE': '1'})
+assert trace.stdout == payload
+summary = summarize(trace.stderr.decode().splitlines())
+assert summary['complete']
+assert sum(stream['bytes'] for stream in summary['transfers'].values()) == len(payload)
+print('Rust trace and Python summary agree.')

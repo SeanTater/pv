@@ -44,6 +44,7 @@ fn tracing_is_opt_in_payload_free_and_reports_per_operation_costs() {
     }
     for event in trace {
         assert_eq!(event["schema"], 1);
+        assert!(event["pid"].as_u64().is_some_and(|pid| pid > 0));
         assert!(event["duration_ns"].is_u64());
     }
     assert!(!String::from_utf8_lossy(&output.stderr).contains("secret payload"));

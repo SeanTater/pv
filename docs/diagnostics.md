@@ -88,7 +88,8 @@ python3 scripts/summarize_trace.py trace.log > profile.json
 ```
 
 The summary aggregates calls, bytes, total/max operation time and errors, and
-marks streams without a stop record as incomplete. It
+marks streams without a stop record as incomplete. Trace completion does not mean
+the copy succeeded: inspect the command exit status and recorded errors. It
 rejects malformed, unsupported or empty traces rather than inventing a profile.
 Concurrent stream timings overlap; their sum is not wall-clock runtime. Per-buffer
 logging changes timing significantly: compare performance with tracing disabled,
