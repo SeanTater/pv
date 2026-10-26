@@ -31,6 +31,10 @@ impl Error for Failure {
 }
 
 pub fn io_failure(code: i32, context: &str, error: io::Error) -> io::Error {
+    // Cancellation must retain its conventional 128+signal status even when
+    // a caller adds read/write context during unwinding.
+    let existing = status(&error);
+    let code = if existing >= 128 { existing } else { code };
     io::Error::new(
         error.kind(),
         Failure {
@@ -81,6 +85,12 @@ pub fn report(error: &(dyn Error + 'static), output: &mut impl io::Write) -> io:
         Some(io::ErrorKind::WriteZero) => {
             Some("the destination stopped accepting data; check available space and device status")
         }
+        Some(io::ErrorKind::OutOfMemory) => Some(
+            "reduce --buffer-size (-B) or --last-written (-A), and check the process memory limit",
+        ),
+        Some(io::ErrorKind::Interrupted) => {
+            Some("transfer interrupted; partial output may be incomplete")
+        }
         Some(io::ErrorKind::Unsupported) => {
             Some("check platform support; try --no-splice for ordinary buffered copying")
         }
@@ -91,6 +101,20 @@ pub fn report(error: &(dyn Error + 'static), output: &mut impl io::Write) -> io:
     #[cfg(unix)]
     if raw_code == Some(libc::ENOSPC) {
         writeln!(output, "  help: free destination space or choose another output path; verify the copy before using it")?;
+    }
+    #[cfg(unix)]
+    if matches!(raw_code, Some(libc::EMFILE | libc::ENFILE)) {
+        writeln!(
+            output,
+            "  help: close unused file descriptors or raise the process open-file limit"
+        )?;
+    }
+    #[cfg(unix)]
+    if raw_code == Some(libc::ENAMETOOLONG) {
+        writeln!(
+            output,
+            "  help: shorten the path or one of its filename components"
+        )?;
     }
     if let Some(help) = help {
         writeln!(output, "  help: {help}")?;
@@ -121,4 +145,47 @@ pub fn report(error: &(dyn Error + 'static), output: &mut impl io::Write) -> io:
 
 pub fn debug_enabled() -> bool {
     std::env::var_os("PV_DEBUG").is_some_and(|value| value == "1")
+}
+
+#[cfg(test)]
+mod diagnostic_contracts {
+    use super::*;
+
+    #[test]
+    fn nested_io_failures_preserve_status_cause_and_recovery_advice() {
+        for (kind, hint) in [
+            (io::ErrorKind::PermissionDenied, "file permissions"),
+            (io::ErrorKind::BrokenPipe, "downstream reader"),
+            (io::ErrorKind::WriteZero, "available space"),
+            (io::ErrorKind::Unsupported, "platform support"),
+            (io::ErrorKind::OutOfMemory, "process memory limit"),
+        ] {
+            let source = io::Error::new(kind, "injected root cause");
+            let inner = io_failure(16, "destination write", source);
+            let outer = io_failure(16, "transfer failed after 17 bytes", inner);
+            assert_eq!(status(&outer), 16);
+            let mut message = Vec::new();
+            report(&outer, &mut message).unwrap();
+            let text = String::from_utf8(message).unwrap();
+            assert!(text.contains("after 17 bytes"));
+            assert!(text.contains("injected root cause"));
+            assert!(text.contains(hint), "{text}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn descriptor_and_path_limits_have_specific_recovery_advice() {
+        for (code, hint) in [
+            (libc::EMFILE, "open-file limit"),
+            (libc::ENFILE, "open-file limit"),
+            (libc::ENAMETOOLONG, "shorten the path"),
+        ] {
+            let failure = io_failure(2, "opening input", io::Error::from_raw_os_error(code));
+            let mut message = Vec::new();
+            report(&failure, &mut message).unwrap();
+            assert_eq!(status(&failure), 2);
+            assert!(String::from_utf8_lossy(&message).contains(hint));
+        }
+    }
 }

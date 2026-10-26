@@ -46,3 +46,28 @@ For profiling, use the reproducible benchmark harness and system profiling tools
 The copier transports arbitrary bytes; it does not diagnose content encoding or
 application-level corruption. Interrupted system I/O is retried, and kernel copy
 paths fall back when supported; unsupported platform features report errors.
+
+## Interrupting a transfer (Unix)
+
+SIGINT (Ctrl-C), SIGTERM, and SIGHUP request cooperative cancellation. Copy loops,
+backpressure polling and throttling stop, ordinary Rust unwinding removes IPC
+sockets and cursor registrations, and anonymous staging files close. Cancellation
+returns `128 + signal` (130 for SIGINT, 143 for SIGTERM, 129 for SIGHUP). A partial
+destination is not a complete copy. Named staging files and requested PID files
+are retained, just as after ordinary exit.
+
+Monitored commands run in their own process group. Cancellation forwards the
+signal to that group and reaps the command; after a one-second grace period,
+remaining group members are killed. Descendants that deliberately leave the group
+are outside that scope. A parent's ignored signal disposition is respected.
+
+A repeated handled signal forces immediate exit. SIGKILL cannot be caught, and
+uninterruptible kernel/device operations may delay cooperative cancellation.
+These cases cannot guarantee cleanup. Native Windows console cancellation remains
+separate work; ordinary Windows I/O error handling is unchanged.
+
+Memory-allocation failures for transfer, line-estimation and kernel-fallback
+buffers return an error instead of invoking an infallible allocation. Reduce `-B`
+when the transfer buffer exceeds available address space. Descriptor exhaustion
+suggests closing descriptors or raising the open-file limit; overlong paths
+suggest shortening the path or filename component.

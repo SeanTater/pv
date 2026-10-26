@@ -11,19 +11,25 @@ use std::io;
 pub fn monitor(config: Config) -> Result<i32, Box<dyn std::error::Error>> {
     use std::fs::File;
     use std::os::fd::{FromRawFd, IntoRawFd};
+    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     };
+    use std::time::{Duration, Instant};
     let Some(command) = config.files.first() else {
         return Err("--monitor requires -- COMMAND [ARGS]".into());
     };
     let mut child = Command::new(command)
         .args(&config.files[1..])
+        .process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .spawn()?;
+        .spawn()
+        .map_err(|e| {
+            crate::error::io_failure(2, &format!("cannot start monitored command '{command}'"), e)
+        })?;
     let input_pipe = child.stdin.take().unwrap();
     let output_pipe = child.stdout.take().unwrap();
     let side = config.monitor.as_deref().unwrap();
@@ -81,7 +87,33 @@ pub fn monitor(config: Config) -> Result<i32, Box<dyn std::error::Error>> {
         sink.finish(display.config.sparse)?;
         display.finish()
     });
-    let status = child.wait();
+    let status = loop {
+        if let Some(signal) = crate::signal::received() {
+            // A separate process group lets cancellation include descendants
+            // that inherited the monitored command's pipe descriptors.
+            let group = -(child.id() as libc::pid_t);
+            unsafe {
+                libc::kill(group, signal);
+            }
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                if child.try_wait()?.is_some() || Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            // Reap stubborn descendants as well as a signal-ignoring leader.
+            unsafe {
+                libc::kill(group, libc::SIGKILL);
+            }
+            break child.wait();
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Err(error) => break Err(error),
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+        }
+    };
     cancel.store(true, Ordering::Relaxed);
     let write_result = writer
         .join()
@@ -89,6 +121,7 @@ pub fn monitor(config: Config) -> Result<i32, Box<dyn std::error::Error>> {
     let read_result = reader
         .join()
         .map_err(|_| io::Error::other("output monitor thread failed"))?;
+    crate::signal::check()?;
     write_result?;
     read_result?;
     let status = status?;

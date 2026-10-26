@@ -3,6 +3,7 @@ mod control;
 mod display;
 mod error;
 mod process;
+mod signal;
 mod terminal;
 mod transfer;
 
@@ -14,12 +15,18 @@ use transfer::{Input, Output, Throttle};
 fn main() {
     if let Err(error) = run() {
         let _ = error::report(error.as_ref(), &mut io::stderr().lock());
-        std::process::exit(error::status(error.as_ref()));
+        std::process::exit(
+            signal::received()
+                .map(|s| 128 + s)
+                .unwrap_or_else(|| error::status(error.as_ref())),
+        );
     }
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::parse_normalized().map_err(|e| error::Failure::new(64, e))?;
+    let _signals = signal::install()
+        .map_err(|e| error::io_failure(1, "cannot install termination handlers", e))?;
     if let Some(pid) = config.remote.or(config.query) {
         let snapshot = control::request(pid, &config).map_err(|e| {
             error::io_failure(1, &format!("cannot contact Rust pv process {pid}"), e)
