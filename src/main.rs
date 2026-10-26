@@ -13,7 +13,7 @@ use transfer::{Input, Output, Throttle};
 
 fn main() {
     if let Err(error) = run() {
-        let _ = writeln!(io::stderr().lock(), "pv: {error}");
+        let _ = error::report(error.as_ref(), &mut io::stderr().lock());
         std::process::exit(error::status(error.as_ref()));
     }
 }
@@ -21,7 +21,9 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::parse_normalized().map_err(|e| error::Failure::new(64, e))?;
     if let Some(pid) = config.remote.or(config.query) {
-        let snapshot = control::request(pid, &config)?;
+        let snapshot = control::request(pid, &config).map_err(|e| {
+            error::io_failure(1, &format!("cannot contact Rust pv process {pid}"), e)
+        })?;
         if config.query.is_some() {
             let mut display = Display::new(config);
             display.load_snapshot(snapshot);
@@ -54,7 +56,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         match Input::open(path) {
             Ok(input) => inputs.push(input),
             Err(e) => {
-                eprintln!("pv: failed to open '{path}': {e}");
+                let failure = error::io_failure(2, &format!("cannot open input '{path}'"), e);
+                let _ = error::report(&failure, &mut io::stderr().lock());
                 input_failures |= 2;
             }
         }
@@ -83,24 +86,35 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         display.control = control::Control::bind().ok();
     }
     if let Some(pidfile) = &config.pidfile {
-        std::fs::write(pidfile, format!("{}\n", std::process::id()))?;
+        std::fs::write(pidfile, format!("{}\n", std::process::id()))
+            .map_err(|e| error::io_failure(2, &format!("cannot write PID file '{pidfile}'"), e))?;
     }
     if let Some(path) = &config.store_and_forward {
         let mut spool = if path == "-" {
-            tempfile::tempfile()?
+            tempfile::tempfile()
+                .map_err(|e| error::io_failure(2, "cannot create temporary staging file", e))?
         } else {
             std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open(path)?
+                .open(path)
+                .map_err(|e| {
+                    error::io_failure(2, &format!("cannot create staging file '{path}'"), e)
+                })?
         };
-        let mut staged_output = Output::File(spool.try_clone()?);
+        let mut staged_output = Output::File(
+            spool
+                .try_clone()
+                .map_err(|e| error::io_failure(2, "cannot duplicate staging file", e))?,
+        );
         // Use the same bounded, counted, paced engine in both phases. In
         // particular --stop-at-size must not consume excess data while staging.
         copy(&mut inputs, &mut staged_output, &mut display)?;
-        spool.seek(SeekFrom::Start(0))?;
+        spool
+            .seek(SeekFrom::Start(0))
+            .map_err(|e| error::io_failure(8, "cannot rewind staging file", e))?;
         inputs = vec![Input::File(spool)];
         if config.total.is_none() {
             config.total = Some(display.units);
@@ -111,7 +125,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut output =
         Output::open(&config).map_err(|e| error::io_failure(2, "output open error", e))?;
-    copy(&mut inputs, &mut output, &mut display)?;
+    copy(&mut inputs, &mut output, &mut display).map_err(|e| {
+        let code = error::status(&e);
+        error::io_failure(
+            code,
+            &format!("transfer failed after {} bytes", display.bytes),
+            e,
+        )
+    })?;
     if input_failures != 0 {
         return Err(
             error::Failure::new(input_failures, "one or more inputs could not be opened").into(),
@@ -144,6 +165,18 @@ fn copy(inputs: &mut [Input], output: &mut Output, display: &mut Display) -> io:
         }
     }
     let mut throttle = Throttle::default();
+    if error::debug_enabled() {
+        eprintln!(
+            "pv: debug: pv {} on {}-{}; buffer={} bytes, limit={}, buffered={}, line_mode={}",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            display.config.buffer,
+            display.config.limit,
+            display.config.no_splice,
+            display.config.line_mode
+        );
+    }
     for input in inputs.iter_mut() {
         #[cfg(target_os = "linux")]
         if transfer::kernel(input, output, display, &mut throttle)? {
@@ -154,5 +187,11 @@ fn copy(inputs: &mut [Input], output: &mut Output, display: &mut Display) -> io:
     output
         .finish(display.config.sparse)
         .map_err(|e| error::io_failure(16, "write error", e))?;
+    if error::debug_enabled() {
+        eprintln!(
+            "pv: debug: copied {} bytes via {}",
+            display.bytes, display.method
+        );
+    }
     display.finish()
 }

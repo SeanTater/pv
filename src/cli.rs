@@ -225,6 +225,12 @@ pub fn quantity(s: &str, si: bool) -> Result<u64, String> {
     u64::try_from(value).map_err(|_| "quantity too large".into())
 }
 
+fn option_quantity(option: &str, value: &str, si: bool) -> Result<u64, String> {
+    quantity(value, si).map_err(|error| format!(
+        "invalid {option} value '{value}': {error}; expected a nonnegative number with optional K/M/G/T suffix (for example 10M)"
+    ))
+}
+
 fn path_size(path: &Path) -> std::io::Result<u64> {
     let meta = std::fs::symlink_metadata(path)?;
     if meta.is_dir() {
@@ -310,22 +316,23 @@ impl Config {
             .as_deref()
             .map(|s| -> Result<u64, Box<dyn std::error::Error>> {
                 if let Some(path) = s.strip_prefix('@') {
-                    Ok(path_size(Path::new(path))?)
+                    path_size(Path::new(path))
+                        .map_err(|e| format!("cannot estimate --size from '{path}': {e}").into())
                 } else {
-                    quantity(s, si_for("size")).map_err(Into::into)
+                    option_quantity("--size", s, si_for("size")).map_err(Into::into)
                 }
             })
             .transpose()?;
         config.limit = config
             .rate_limit
             .as_deref()
-            .map(|s| quantity(s, si_for("rate_limit")))
+            .map(|s| option_quantity("--rate-limit", s, si_for("rate_limit")))
             .transpose()?
             .unwrap_or(0);
         config.buffer = config
             .buffer_size
             .as_deref()
-            .map(|s| quantity(s, si_for("buffer_size")))
+            .map(|s| option_quantity("--buffer-size", s, si_for("buffer_size")))
             .transpose()?
             .unwrap_or(128 * 1024)
             .try_into()?;
@@ -336,15 +343,17 @@ impl Config {
             config.average_rate_window = 30;
         }
         if !(1..=64 * 1024 * 1024).contains(&config.buffer) {
-            return Err("buffer size must be between 1 and 64MiB".into());
+            return Err(
+                "--buffer-size must be between 1 and 64MiB; reduce -B (for example -B 128K)".into(),
+            );
         }
         if config.last_written.is_some_and(|n| n > 1024 * 1024) {
-            return Err("last-written must not exceed 1MiB".into());
+            return Err("--last-written must not exceed 1MiB; reduce -A".into());
         }
         config.skip_block = config
             .error_skip_block
             .as_deref()
-            .map(|s| quantity(s, si_for("error_skip_block")))
+            .map(|s| option_quantity("--error-skip-block", s, si_for("error_skip_block")))
             .transpose()?;
         if config.skip_block == Some(0) {
             return Err("error skip block must be positive".into());
@@ -352,7 +361,7 @@ impl Config {
         config.pipe_buffer = config
             .pipe_buffer_size
             .as_deref()
-            .map(|s| quantity(s, si_for("pipe_buffer_size")))
+            .map(|s| option_quantity("--pipe-buffer-size", s, si_for("pipe_buffer_size")))
             .transpose()?
             .map(i32::try_from)
             .transpose()?;

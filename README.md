@@ -151,6 +151,9 @@ These intentional changes make existing upstream scripts work:
 - `-v` / `--stats` reports rate statistics. `--verbose` remains an alias.
 - `-a` uses a rolling average and `-I` displays a completion clock time.
 
+See [errors and diagnostics](docs/diagnostics.md) for failure categories, recovery
+hints, and opt-in `PV_DEBUG=1` troubleshooting output.
+
 ## Tests and development
 
 ```sh

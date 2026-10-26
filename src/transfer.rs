@@ -155,9 +155,10 @@ impl Output {
                 .open(path)
                 .map(Self::File)
                 .map_err(|e| {
-                    io::Error::new(
-                        e.kind(),
-                        format!("failed to create output file '{path}': {e}"),
+                    crate::error::io_failure(
+                        2,
+                        &format!("failed to create output file '{path}'"),
+                        e,
                     )
                 });
         }
