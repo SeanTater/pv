@@ -220,6 +220,7 @@ jobs:
     - name: Prepare binaries for release
       run: |
         mkdir release-assets
+        cp docs/pv.1 ./release-assets/pv.1
         cp ./artifacts/pv-linux-x86_64/pv ./release-assets/pv-linux-x86_64-binary
         cp ./artifacts/pv-linux-arm64/pv ./release-assets/pv-linux-arm64-binary
         cp ./artifacts/pv-windows-x86_64.exe/pv.exe ./release-assets/pv-windows-x86_64.exe

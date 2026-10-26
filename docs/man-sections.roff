@@ -1,0 +1,76 @@
+.SH QUANTITIES
+Sizes, rates and buffer sizes accept decimal numbers with K, M, G or T suffixes
+(case insensitive). Suffixes use powers of 1024; \-k selects powers of 1000
+for subsequent quantity options. In line mode, size and rate count records.
+A size of @PATH uses the size of that path, recursively for directories.
+The transfer buffer defaults to 128 KiB and is limited to 64 MiB.
+.SH FORMATS
+Use \-F FORMAT to choose display fields. Supported fields include:
+.TP
+.B %b, %t, %r, %a
+Transferred count, elapsed time, current rate and rolling average rate.
+.TP
+.B %p, %e, %I, %N
+Progress bar, remaining time, local completion time and name.
+.TP
+.B %T, %nA, %L
+Buffer utilization (or kernel copy method), last n written bytes and previous line.
+.TP
+.B %%
+A literal percent sign.
+.PP
+Numeric mode emits raw records to stderr. With \-n \-b it emits byte or line counts;
+without a count selection it normally emits percentage. Explicit \-F selects its fields.
+Unknown-size progress cannot provide a meaningful percentage or ETA.
+.SH EXAMPLES
+.TP
+.B pv archive.tar | gzip > archive.tar.gz
+Compress a file while displaying progress.
+.TP
+.B pv \-L 10M image.iso > copy.iso
+Limit the transfer to 10 MiB per second.
+.TP
+.B producer | pv \-n \-b > output.bin 2> counts.txt
+Capture data separately from numeric byte counts.
+.TP
+.B pv \-s 100 \-S input.bin > first.bin
+Copy at most 100 bytes, leaving subsequent input unconsumed.
+.TP
+.B pv \-l \-s 100 records.txt > copy.txt
+Count newline-terminated records using an explicit total.
+.TP
+.B pv \-f \-F '%N %b %r %e' \-N backup input.bin > output.bin
+Force a named custom progress display.
+.SH EXIT STATUS
+Zero means success. Nonzero statuses identify failures; relevant upstream-compatible
+bits are 2 for opening/accessing files, 8 for input/read failures, 16 for output/write
+failures, and 64 for invalid options. Other failures may return 1. Monitor mode
+propagates the monitored command's exit status. Inspect stderr for details.
+.SH ENVIRONMENT AND FILES
+There is no configuration file or PV_* option-default environment interface.
+The standard temporary directory is used for temporary store-and-forward files
+and private Unix IPC sockets. The IPC directory must be private and owned by the
+current user; ordinary copying remains possible when IPC is unavailable.
+TZ affects local completion-time formatting. Terminal capabilities affect display.
+A named store-and-forward file and a requested PID file remain on disk after exit.
+.SH COMPATIBILITY
+This is the Rust implementation, not the original Pipe Viewer. Upstream pv 1.12.0
+is the tested behavioral reference. Remote/query use a private protocol between
+Rust pv instances and cannot control upstream pv. Descriptor watching requires
+Linux /proc. Direct I/O and kernel copy acceleration are Linux-specific; monitor,
+cursor coordination and remote/query require Unix. Ordinary copying is portable.
+Display styling and rate statistics are not guaranteed to match upstream exactly.
+.SH TROUBLESHOOTING
+If no progress is visible, ensure stderr goes to a terminal or use \-f.
+Use \-s to provide a known total for a pipe. A broken pipe means the downstream
+reader stopped; check its exit status. For input/output failures, check the named
+paths, permissions and available destination space. \-E is intended for recovery
+from seekable input errors and may replace unreadable ranges with zeros.
+Do not use it to hide failures in a normal backup. Use \-C to compare buffered
+copy behavior when investigating kernel-path differences.
+.SH SEE ALSO
+.BR cat (1),
+.BR dd (1),
+.BR gzip (1)
+.PP
+https://github.com/SeanTater/pv
