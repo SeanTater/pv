@@ -37,7 +37,7 @@ def run(args):
     paths = {name: str(Path(getattr(args, name)).resolve()) for name in ['candidate', 'baseline']}
     report = {'schema': 1, 'complete': False, 'platform': platform.platform(),
               'runs': args.runs, 'size_mib': args.size_mib, 'cases': {},
-              'binaries': {name: {'version': subprocess.check_output([binary, '--version'], text=True).splitlines()[0],
+              'binaries': {name: {'version': subprocess.check_output([binary, '--version'], text=True, timeout=30).splitlines()[0],
                                     'sha256': hashlib.sha256(Path(binary).read_bytes()).hexdigest()}
                            for name, binary in paths.items()}}
     output = Path(args.output)

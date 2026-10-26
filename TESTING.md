@@ -46,9 +46,11 @@ well as the test harnesses. The previous default ptrace run without `--follow-ex
 reported only 11.49% and missed most integration-exercised code. LLVM also avoids
 ptrace's substantial timing overhead in child-process and terminal tests.
 
-On Linux x86_64, this branch measured **91.19% line coverage (1418/1555)** with
-all 245 tests passing and no external upstream reference configured. The preceding merged baseline was 83.47% (1298/1555); the expanded suite exceeds
-the issue's >90% goal. Source/region mapping differs
+After the coverage and Unix cancellation changes, the combined Linux x86_64
+baseline measured **91.44% line coverage (1495/1635)** with all 254 Rust tests
+passing and no external upstream reference configured. The earlier baseline was
+83.47% (1298/1555); the expanded suite exceeds the issue's >90% goal.
+Source/region mapping differs
 between backends, so the old 11.49% is not an apples-to-apples improvement measure.
 CI enforces a 90% floor and preserves XML/JSON reports as the `coverage-linux`
 artifact; Codecov receives the XML report. Inspect uncovered lines before raising
