@@ -1,0 +1,241 @@
+.TH PV 1 "" "pv 0.6.0" "User Commands"
+.SH NAME
+pv \- monitor and manage data flowing through a pipe
+.SH SYNOPSIS
+.B pv
+[OPTIONS] [FILES]...
+.SH DESCRIPTION
+Copy input files in order to standard output and report progress on standard error.
+A missing input list or a filename of \- reads standard input.
+Use \-o to write a destination file. Progress is hidden when stderr is not a terminal,
+unless \-f or \-n is selected. Binary data is passed through unchanged.
+.SH OPTIONS
+.TP
+.B \-s, \-\-size <SIZE>
+Estimated total bytes or lines; accepts decimal K/M/G/T suffixes or @PATH
+.TP
+.B \-t, \-\-timer
+Show elapsed time
+.TP
+.B \-w, \-\-width <WIDTH>
+Display width; 0 selects terminal detection
+.TP
+.B \-H, \-\-height <HEIGHT>
+Terminal rows for cursor positioning; 0 selects detection
+.TP
+.B \-b, \-\-bytes
+Show transferred byte or line count
+.TP
+.B \-r, \-\-rate
+Show current transfer rate
+.TP
+.B \-a, \-\-average\-rate
+Show rolling average transfer rate
+.TP
+.B \-e, \-\-eta
+Show estimated time remaining
+.TP
+.B \-I, \-\-fineta
+Show estimated local completion time
+.TP
+.B \-l, \-\-line\-mode
+Count newline\-terminated records instead of bytes
+.TP
+.B \-0, \-\-null
+Count NUL\-terminated records; implies \-\-line\-mode
+.TP
+.B \-E, \-\-skip\-errors...
+Skip seekable input errors with zero padding; repeat to reduce diagnostics
+.TP
+.B \-Z, \-\-error\-skip\-block <ERROR_SKIP_BLOCK>
+On read errors, advance to the next BYTES block boundary
+.TP
+.B \-O, \-\-sparse
+Seek over zero blocks when writing a regular file
+.TP
+.B \-i, \-\-interval <INTERVAL>
+Seconds between display updates; 0 selects 0.1 [default: 1]
+.TP
+.B \-m, \-\-average\-rate\-window <AVERAGE_RATE_WINDOW>
+Rolling average window in seconds; 0 selects 30 [default: 30]
+.TP
+.B \-N, \-\-name <NAME>
+Prefix the display with NAME
+.TP
+.B \-T, \-\-buffer\-percent
+Show transfer buffer occupancy; implies \-\-no\-splice
+.TP
+.B \-A, \-\-last\-written <NUM>
+Show the last NUM bytes; implies \-\-no\-splice
+.TP
+.B \-B, \-\-buffer\-size <BYTES>
+Transfer buffer size (K/M/G/T suffixes); implies \-\-no\-splice
+.TP
+.B \-C, \-\-no\-splice
+Use buffered read/write rather than kernel\-assisted copying
+.TP
+.B \-J, \-\-pipe\-buffer\-size <BYTES>
+Best\-effort Linux pipe capacity in bytes
+.TP
+.B \-q, \-\-quiet
+Suppress progress output (explicit \-\-stats still prints a summary)
+.TP
+.B \-p, \-\-progress
+Show progress bar
+.TP
+.B \-F, \-\-format <FORMAT>
+Custom display or numeric format string
+.TP
+.B \-n, \-\-numeric
+Write raw numeric progress records to standard error
+.TP
+.B \-v, \-\-stats
+Print minimum, average, maximum and deviation of byte rates
+.TP
+.B \-L, \-\-rate\-limit <RATE>
+Maximum bytes or lines per second; 0 disables throttling
+.TP
+.B \-o, \-\-output <FILE>
+Write data to FILE instead of stdout
+.TP
+.B \-f, \-\-force
+Show progress even when stderr is not a terminal
+.TP
+.B \-k, \-\-si
+Use base\-1000 units and interpret following quantity suffixes as SI
+.TP
+.B \-8, \-\-bits
+Display byte counts and rates as bits
+.TP
+.B \-S, \-\-stop\-at\-size
+Stop at the size selected by \-\-size without consuming subsequent input
+.TP
+.B \-W, \-\-wait
+Start reporting and timing after the first byte is transferred
+.TP
+.B \-D, \-\-delay\-start <DELAY_START>
+Delay only reporting by SEC seconds; never delay data transfer
+.TP
+.B \-g, \-\-gauge
+For unknown sizes, display rate relative to the maximum observed rate
+.TP
+.B \-u, \-\-bar\-style <BAR_STYLE>
+Select progress bar appearance [default: plain] [possible values: plain, block, granular, shaded]
+.TP
+.B \-X, \-\-discard
+Consume and count input without emitting data
+.TP
+.B \-Y, \-\-sync
+Synchronize regular\-file output after each write
+.TP
+.B \-K, \-\-direct\-io
+Use aligned direct I/O for Linux regular files; preserve short tails
+.TP
+.B \-U, \-\-store\-and\-forward <FILE>
+Stage all input in FILE before forwarding; \- selects a temporary file
+.TP
+.B \-P, \-\-pidfile <FILE>
+Write this process ID to FILE
+.TP
+.B \-c, \-\-cursor
+Coordinate terminal rows between Rust pv instances (Unix)
+.TP
+.B \-x, \-\-extra\-display <SPEC>
+Also report to window/process titles, optionally with :FORMAT
+.TP
+.B \-9, \-\-conemu
+Set terminal progress state using OSC 9;4
+.TP
+.B \-d, \-\-watchfd <PID[:FD]|=NAME|@LISTFILE>...
+Observe byte offsets in another process using Linux /proc
+.TP
+.B \-R, \-\-remote <PID>
+Change explicit settings of a running Rust pv (Unix)
+.TP
+.B \-Q, \-\-query <PID>
+Report a running Rust pv snapshot (Unix)
+.TP
+.B \-M, \-\-monitor <SIDE>
+Run \-\- COMMAND ARGS and monitor its input, output or both (Unix) [possible values: in, 0, out, 1, both, 2]
+.TP
+.B \-V, \-\-version
+Print version information.
+.TP
+.B \-h, \-\-help
+Print help
+.SH QUANTITIES
+Sizes, rates and buffer sizes accept decimal numbers with K, M, G or T suffixes
+(case insensitive). Suffixes use powers of 1024; \-k selects powers of 1000
+for subsequent quantity options. In line mode, size and rate count records.
+A size of @PATH uses the size of that path, recursively for directories.
+The transfer buffer defaults to 128 KiB and is limited to 64 MiB.
+.SH FORMATS
+Use \-F FORMAT to choose display fields. Supported fields include:
+.TP
+.B %b, %t, %r, %a
+Transferred count, elapsed time, current rate and rolling average rate.
+.TP
+.B %p, %e, %I, %N
+Progress bar, remaining time, local completion time and name.
+.TP
+.B %T, %nA, %L
+Buffer utilization (or kernel copy method), last n written bytes and previous line.
+.TP
+.B %%
+A literal percent sign.
+.PP
+Numeric mode emits raw records to stderr. With \-n \-b it emits byte or line counts;
+without a count selection it normally emits percentage. Explicit \-F selects its fields.
+Unknown-size progress cannot provide a meaningful percentage or ETA.
+.SH EXAMPLES
+.TP
+.B pv archive.tar | gzip > archive.tar.gz
+Compress a file while displaying progress.
+.TP
+.B pv \-L 10M image.iso > copy.iso
+Limit the transfer to 10 MiB per second.
+.TP
+.B producer | pv \-n \-b > output.bin 2> counts.txt
+Capture data separately from numeric byte counts.
+.TP
+.B pv \-s 100 \-S input.bin > first.bin
+Copy at most 100 bytes, leaving subsequent input unconsumed.
+.TP
+.B pv \-l \-s 100 records.txt > copy.txt
+Count newline-terminated records using an explicit total.
+.TP
+.B pv \-f \-F '%N %b %r %e' \-N backup input.bin > output.bin
+Force a named custom progress display.
+.SH EXIT STATUS
+Zero means success. Nonzero statuses identify failures; relevant upstream-compatible
+bits are 2 for opening/accessing files, 8 for input/read failures, 16 for output/write
+failures, and 64 for invalid options. Other failures may return 1. Monitor mode
+propagates the monitored command's exit status. Inspect stderr for details.
+.SH ENVIRONMENT AND FILES
+There is no configuration file or PV_* option-default environment interface.
+The standard temporary directory is used for temporary store-and-forward files
+and private Unix IPC sockets. The IPC directory must be private and owned by the
+current user; ordinary copying remains possible when IPC is unavailable.
+TZ affects local completion-time formatting. Terminal capabilities affect display.
+A named store-and-forward file and a requested PID file remain on disk after exit.
+.SH COMPATIBILITY
+This is the Rust implementation, not the original Pipe Viewer. Upstream pv 1.12.0
+is the tested behavioral reference. Remote/query use a private protocol between
+Rust pv instances and cannot control upstream pv. Descriptor watching requires
+Linux /proc. Direct I/O and kernel copy acceleration are Linux-specific; monitor,
+cursor coordination and remote/query require Unix. Ordinary copying is portable.
+Display styling and rate statistics are not guaranteed to match upstream exactly.
+.SH TROUBLESHOOTING
+If no progress is visible, ensure stderr goes to a terminal or use \-f.
+Use \-s to provide a known total for a pipe. A broken pipe means the downstream
+reader stopped; check its exit status. For input/output failures, check the named
+paths, permissions and available destination space. \-E is intended for recovery
+from seekable input errors and may replace unreadable ranges with zeros.
+Do not use it to hide failures in a normal backup. Use \-C to compare buffered
+copy behavior when investigating kernel-path differences.
+.SH SEE ALSO
+.BR cat (1),
+.BR dd (1),
+.BR gzip (1)
+.PP
+https://github.com/SeanTater/pv

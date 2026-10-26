@@ -99,6 +99,10 @@ The original Pipe Viewer is the behavioral reference, currently pinned to
 claim complete parity. The checklist below distinguishes tested contracts from
 capabilities with remaining differences.
 
+See the [usage recipes and troubleshooting guide](docs/examples.md) for more examples.
+The [man page](docs/pv.1) documents every flag; see [CONTRIBUTING.md](CONTRIBUTING.md)
+for installation of the man page, architecture, and contribution checks.
+
 ## Compatibility checklist
 
 | Area | Available behavior | Verification / limits |
